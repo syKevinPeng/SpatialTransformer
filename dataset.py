@@ -61,7 +61,7 @@ class StaticCenterCrop(object):
         return img[(self.h-self.th)//2:(self.h+self.th)//2, (self.w-self.tw)//2:(self.w+self.tw)//2,:]
 
 class ChairsSDHom(Dataset):
-  def __init__(self, crop_size=(256,256), render_size=(256,256), is_cropped = 0, to_gray = 1,
+  def __init__(self, crop_size=(256,256), render_size=(256,256), is_cropped = False, to_gray = 1,
                root = '/path/to/chairssdhom/data', dstype = 'train', debug=None):
     self.is_cropped = is_cropped
     self.crop_size = crop_size
@@ -70,9 +70,10 @@ class ChairsSDHom(Dataset):
 
     image1 = sorted( glob( join(root, dstype, 't0/*.png') ) )
     image2 = sorted( glob( join(root, dstype, 't1/*.png') ) )
-    self.flow_list = sorted( glob( join(root, dstype, 'flow/*.flo') ) )
+    self.flow_list = sorted( glob( join(root, dstype, 'flow/*.pfm') ) )
 
-    assert (len(image1) == len(self.flow_list))
+    if len(image1) != len(image2) or len(image1) == 0:
+        raise Exception(f"images1 and images2 are not the same length or empty:\nimages1:{image1}")
 
     self.image_list = []
     for i in range(len(self.flow_list)):
@@ -83,7 +84,6 @@ class ChairsSDHom(Dataset):
     assert len(self.image_list) == len(self.flow_list)
 
     self.size = len(self.image_list)
-
     self.frame_size = frame_utils.read_gen(self.image_list[0][0]).shape
 
     if (self.render_size[0] < 0) or (self.render_size[1] < 0) or (self.frame_size[0]%64) or (self.frame_size[1]%64):
@@ -131,8 +131,7 @@ class ChairsSDHom(Dataset):
     im2 = torch.from_numpy(img2).unsqueeze(0)
     flow = torch.from_numpy(flow.copy()).squeeze()
 
-
-    dic = {'im1': im1, 'im2': im2, 'flow': flow}
+    dic = {'im1': im1.to(torch.float32), 'im2': im2.to(torch.float32), 'flow': flow.to(torch.float16)}
     return dic
 
 

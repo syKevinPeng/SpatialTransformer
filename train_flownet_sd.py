@@ -1,4 +1,5 @@
 import argparse
+from sympy import false
 import torch
 import warnings
 import numpy as np
@@ -23,19 +24,19 @@ parser.add_argument('--LR', type=float, default=1e-3, help='number of epochs of 
 parser.add_argument('--bat_size', type=int, default=32, help='batch size')
 parser.add_argument('--epoch', type=int, default=1000, help='batch size')
 parser.add_argument('--data_path', type=str, default="../data/lai/", help='path to blurry image')
-parser.add_argument('--save_path', type=str, default="./tmp/02_5_pmel2+gd_w1/", help='path to save results')
+parser.add_argument('--save_path', type=str, default="./checkpoints/", help='path to save results')
 parser.add_argument('--save_frequency', type=int, default=50, help='frequency to save results')
 parser.add_argument('-C', type=int, default=3, help='frequency to save results')
 parser.add_argument('--gpu_idx', type=int, default=1)
 parser.add_argument('--debug', type=int, default=False)
-parser.add_argument('--eval', default=True)
+parser.add_argument('--eval', action='store_true')
 parser.add_argument('--exp_weight', default=0.99)
 parser.add_argument('-w', '--write', action='store_true')
-parser.add_argument('--resume', default=True)
+parser.add_argument('--resume', action='store_true')
 opt = parser.parse_args()
 
 print(opt)
-torch.cuda.set_device(opt.gpu_idx)
+torch.cuda.device(opt.gpu_idx)
 torch.backends.cudnn.enabled = True
 torch.backends.cudnn.benchmark = True
 dtype = torch.cuda.FloatTensor
@@ -73,22 +74,22 @@ else:
 net = FlowNetSD().cuda()
 
 # train_dset = Train_Dataset(dir = './data/BSDS_FLOW', debug = debug)
-train_dset= ChairsSDHom(is_cropped = 0, root = '../flownet2_pytorch/data/ChairsSDHom/data', dstype = 'train', debug=1000)
+train_dset= ChairsSDHom(is_cropped = False, root = '/mnt/e/Downloads/ChairsSDHom/data', dstype = 'train', debug=1000)
 # val_bsds_dset = Train_Dataset(dir = './data/BSDS_VAL_FLOW', debug = 1)
 # val_train_dset = Train_Dataset(dir = './data/BSDS_FLOW', debug = 1)
 val_ouchi_dset = Train_Dataset(dir = './data/Ouchi_FLOW', debug = None)
-val_movsin_dset = Train_Dataset(dir = './data/MovSin_v2_FLOW', debug = None)
-val_wheel_dset = Train_Dataset(dir = './data/Wheel_FLOW', debug = None)
-val_set8_dset = Train_Dataset(dir = './data/Set8_FLOW', debug = 1)
-val_train_dset= ChairsSDHom(is_cropped = 0, root = '../flownet2_pytorch/data/ChairsSDHom/data', dstype = 'train', replicates = 1, debug=1)
+# val_movsin_dset = Train_Dataset(dir = './data/MovSin_v2_FLOW', debug = None)
+# val_wheel_dset = Train_Dataset(dir = './data/Wheel_FLOW', debug = None)
+# val_set8_dset = Train_Dataset(dir = './data/Set8_FLOW', debug = 1)
+# val_train_dset= ChairsSDHom(is_cropped = 0, root = '../flownet2_pytorch/data/ChairsSDHom/data', dstype = 'train', replicates = 1, debug=1)
 
 
 train_DLoader = DataLoader(train_dset, batch_size=opt.bat_size, shuffle=True, num_workers=0, pin_memory=False)
 # val_bsds_DLoader = DataLoader(val_bsds_dset, batch_size=1, shuffle=False, num_workers=0, pin_memory=False)
 val_ouchi_DLoader = DataLoader(val_ouchi_dset, batch_size=1, shuffle=False, num_workers=0, pin_memory=False)
 # val_train_DLoader = DataLoader(val_train_dset, batch_size=1, shuffle=False, num_workers=0, pin_memory=False)
-val_movsin_DLoader = DataLoader(val_movsin_dset, batch_size=1, shuffle=False, num_workers=0, pin_memory=False)
-val_wheel_DLoader = DataLoader(val_wheel_dset, batch_size=1, shuffle=False, num_workers=0, pin_memory=False)
+# val_movsin_DLoader = DataLoader(val_movsin_dset, batch_size=1, shuffle=False, num_workers=0, pin_memory=False)
+# val_wheel_DLoader = DataLoader(val_wheel_dset, batch_size=1, shuffle=False, num_workers=0, pin_memory=False)
 # val_set8_DLoader = DataLoader(val_set8_dset, batch_size=1, shuffle=False, num_workers=0, pin_memory=False)
 
 optimizer = torch.optim.Adam(net.parameters(), lr=opt.LR)
@@ -117,8 +118,8 @@ def val(val_DLoader, name, step):
                 im1 = F.pad(im1, (0, 0, 11, 12))[:, :, :, 39:-38]
                 im2 = F.pad(im2, (0, 0, 11, 12))[:, :, :, 39:-38]
                 gt_flow = F.pad(gt_flow, (0, 0, 11, 12))[:, :, :, 39:-38]
-                imshow(im1,'im1_%d'%n_count)
-                imshow(im2, 'im2_%d' % n_count)
+                imshow(im1,'im1_%d'%n_count, dir = "./result/ouchi_data")
+                imshow(im2, 'im2_%d' % n_count, dir = "./result/ouchi_data")
             pred_flow = net(torch.cat((im1, im2), dim=1))
             if name == 'wheel':
                 def compute_gradient(img):
@@ -146,9 +147,9 @@ def val(val_DLoader, name, step):
                 gt_flow[0, ...] = gt_flow[0, ...].cpu() * torch.from_numpy(~loc)
 
 
-            vfshown(pred_flow[:, 0, :, :], pred_flow[:, 1, :, :], sample_rate=sample_rate, save_fig=True,
+            vfshown(pred_flow[:, 0, :, :], pred_flow[:, 1, :, :], sample_rate=sample_rate, save_fig=False,
                     file_name=os.path.join(opt.save_path + 'pre_%d_%s_%d_flow' % (n_count, name, step)),keepscale=keep_scale, scale = scale)
-            vfshown(gt_flow[:, 0, :, :], gt_flow[:, 1, :, :], sample_rate=sample_rate, save_fig=True,
+            vfshown(gt_flow[:, 0, :, :], gt_flow[:, 1, :, :], sample_rate=sample_rate, save_fig=False,
                     file_name=os.path.join(opt.save_path + 'gt_%d_%s_flow' % (n_count,name)),keepscale=keep_scale, scale = scale)
 
             img = vis_flow(gt_flow.cpu().numpy().squeeze())
@@ -196,8 +197,8 @@ def val(val_DLoader, name, step):
 
 if opt.eval:
     opt.save_path = './tmp/FastView/'
-    val(val_wheel_DLoader, 'wheel', -1)
-    # val(val_ouchi_DLoader, 'ouchi', -1)
+    # val(val_wheel_DLoader, 'wheel', -1)
+    val(val_ouchi_DLoader, 'ouchi', -1)
     exit(0)
 
 if opt.resume:
@@ -230,14 +231,14 @@ with tqdm(total=opt.epoch - start, ncols=100, position=0, leave=True) as t:
 
 
             # Do Validation in several runs.
-            if  (n_count == 0) or (opt.debug and n_count % 100 == 0):
+            if  (n_count == 0) or (opt.debug and epoch % 250 == 0):
                 # val(val_bsds_DLoader, 'bsds', epoch)
                 val(val_ouchi_DLoader, 'ouchi', epoch)
                 # val(val_train_DLoader, 'train', epoch)
                 # val(val_movsin_DLoader, 'movsin', epoch)
                 # val(val_wheel_DLoader, 'wheel', epoch)
 
-
+    
         t.set_postfix(loss='%1.3e' % loss.detach().cpu().numpy())
         t.update()
         if epoch % opt.save_frequency == 0 or epoch == opt.epoch - 1:
