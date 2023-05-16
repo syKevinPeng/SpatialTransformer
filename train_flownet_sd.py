@@ -72,8 +72,8 @@ else:
 
 net = FlowNetSD().cuda()
 
-train_dset = Train_Dataset(dir = './data/BSDS_FLOW', debug = debug)
-# train_dset= ChairsSDHom(is_cropped = 0, root = '../flownet2_pytorch/data/ChairsSDHom/data', dstype = 'train', replicates = 1, debug=1000)
+# train_dset = Train_Dataset(dir = './data/BSDS_FLOW', debug = debug)
+train_dset= ChairsSDHom(is_cropped = 0, root = '../flownet2_pytorch/data/ChairsSDHom/data', dstype = 'train', debug=1000)
 # val_bsds_dset = Train_Dataset(dir = './data/BSDS_VAL_FLOW', debug = 1)
 # val_train_dset = Train_Dataset(dir = './data/BSDS_FLOW', debug = 1)
 val_ouchi_dset = Train_Dataset(dir = './data/Ouchi_FLOW', debug = None)

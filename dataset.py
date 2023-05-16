@@ -62,11 +62,10 @@ class StaticCenterCrop(object):
 
 class ChairsSDHom(Dataset):
   def __init__(self, crop_size=(256,256), render_size=(256,256), is_cropped = 0, to_gray = 1,
-               root = '/path/to/chairssdhom/data', dstype = 'train', replicates = 1, debug=None):
+               root = '/path/to/chairssdhom/data', dstype = 'train', debug=None):
     self.is_cropped = is_cropped
     self.crop_size = crop_size
     self.render_size = render_size
-    self.replicates = replicates
     self.to_gray = to_gray
 
     image1 = sorted( glob( join(root, dstype, 't0/*.png') ) )
