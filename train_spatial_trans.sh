@@ -1,5 +1,5 @@
 #!/usr/bin/bash 
-#SBATCH --time=1-24:00:00
+#SBATCH --time=0-24:00:00
 #SBATCH --partition=scavenger
 #SBATCH --qos=scavenger
 #SBATCH --gres=gpu:1
