@@ -15,6 +15,7 @@ from utils.imtools import imshow, vfshown
 from torch.optim.lr_scheduler import MultiStepLR
 from torch.utils.data import DataLoader
 from tqdm import tqdm
+from pathlib import Path
 
 from dataset import Train_Dataset, ChairsSDHom
 from loss import MultiScale, pme_loss
@@ -55,12 +56,13 @@ setup_seed(0)
 def save_files(opt):
     if opt.write:
         from shutil import copyfile, copytree
-        src_dir = os.path.join(opt.save_path, 'src')
-        os.makedirs(src_dir, exist_ok=True)
-        copyfile(os.path.basename(__file__), os.path.join(src_dir, os.path.basename(__file__)))
-        copyfile('loss.py', os.path.join(src_dir, 'loss.py'))
-        copytree('./network/', os.path.join(src_dir, 'network'))
-        copytree('./utils/', os.path.join(src_dir, 'utils'))
+        src_dir = Path(opt.save_path, 'src')
+        if not src_dir.is_dir():
+            os.makedirs(src_dir, exist_ok=True)
+            copyfile(os.path.basename(__file__), os.path.join(src_dir, os.path.basename(__file__)))
+            copyfile('loss.py', os.path.join(src_dir, 'loss.py'))
+            copytree('./network/', os.path.join(src_dir, 'network'))
+            copytree('./utils/', os.path.join(src_dir, 'utils'))
 if opt.write:
     os.makedirs(opt.save_path, exist_ok=True)
     writer = SummaryWriter(opt.save_path)
