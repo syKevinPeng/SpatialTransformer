@@ -7,15 +7,11 @@
 #SBATCH --error=slurm_output/slurm-%j.err
 
 set -x
-cd Optical_Illusion
-cd SpatialTransformer
 echo "----------- INFO ------------"
 echo "Train with SpatialTransformer on ChairsSDHom"
 echo "Experiment ID: exp0"
 echo "Output Dir: /vulcanscratch/peng2000/SpatialTransformer/exp0"
 echo "-----------------------------"
 
-srun zsh -c "conda activate raft; \
-    python3 train_flownet_sd.py -w \
-                            --dataset_path /vulcanscratch/peng2000/ChairsSDHom/data \
-                            --save_path /vulcanscratch/peng2000/SpatialTransformer/exp0 \"
+srun zsh -c "conda activate /vulcanscratch/peng2000/raft; python3 train_flownet_sd.py -w --dataset_path /vulcanscratch/peng2000/ChairsSDHom/data --save_path /vulcanscratch/peng2000/SpatialTransformer/exp0 "
+
