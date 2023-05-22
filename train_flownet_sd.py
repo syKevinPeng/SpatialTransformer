@@ -1,4 +1,5 @@
 import argparse
+from sympy import true
 import torch
 import warnings
 import numpy as np
@@ -49,7 +50,7 @@ parser.add_argument(
     f"--dataset_path", type=str, default="/mnt/e/Downloads/ChairsSDHom/data"
 )
 parser.add_argument("--network", type=str, default="cnn")
-parser.add_argument("--to_gray", action="store_true")
+parser.add_argument("--to_gray", type=bool, default=true)
 opt = parser.parse_args()
 
 print(opt)
