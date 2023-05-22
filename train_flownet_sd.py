@@ -49,6 +49,7 @@ parser.add_argument(
     f"--dataset_path", type=str, default="/mnt/e/Downloads/ChairsSDHom/data"
 )
 parser.add_argument("--network", type=str, default="cnn")
+parser.add_argument("--to_gray", action="store_true")
 opt = parser.parse_args()
 
 print(opt)
@@ -108,7 +109,7 @@ print(f'Using {opt.network}')
 
 # train_dset = Train_Dataset(dir = './data/BSDS_FLOW', debug = debug)
 train_dset = ChairsSDHom(
-    is_cropped=0, root=opt.dataset_path, dstype="train", debug=1000
+    is_cropped=0, root=opt.dataset_path, dstype="train", debug=1000, to_gray=opt.to_gray
 )
 # val_bsds_dset = Train_Dataset(dir = './data/BSDS_VAL_FLOW', debug = 1)
 # val_train_dset = Train_Dataset(dir = './data/BSDS_FLOW', debug = 1)
