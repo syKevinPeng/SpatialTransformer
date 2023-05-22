@@ -20,8 +20,9 @@ class CNN(nn.Module):
         self.cnn = nn.Sequential(*layers)
         self._initialize_weights()
 
-    def forward(self, x, y):
-        input = torch.cat((x,y), dim = 1)
+    def forward(self, x):
+        # input = torch.cat((x,y), dim = 1)
+        input = x
         output = self.cnn(input)
         return output
 
