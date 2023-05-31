@@ -28,7 +28,7 @@ parser.add_argument(
     "--LR", type=float, default=1e-3, help="number of epochs of training"
 )
 parser.add_argument("--bat_size", type=int, default=32, help="batch size")
-parser.add_argument("--epoch", type=int, default=1000, help="batch size")
+parser.add_argument("--epoch", type=int, default=1500, help="epoch size")
 parser.add_argument(
     "--data_path", type=str, default="../data/lai/", help="path to blurry image"
 )
@@ -36,7 +36,7 @@ parser.add_argument(
     "--save_path", type=str, default="./checkpoints/", help="path to save results"
 )
 parser.add_argument(
-    "--save_frequency", type=int, default=500, help="frequency to save results"
+    "--save_frequency", type=int, default=1, help="frequency to save results"
 )
 parser.add_argument("-C", type=int, default=3, help="frequency to save results")
 parser.add_argument("--gpu_idx", type=int, default=1)
@@ -49,7 +49,7 @@ parser.add_argument("--resume", action="store_true")
 parser.add_argument(
     f"--dataset_path", type=str, default="/mnt/e/Downloads/ChairsSDHom/data"
 )
-parser.add_argument("--network", type=str, default="cnn")
+parser.add_argument("--network", type=str, default="flownet")
 parser.add_argument("--to_gray", type=bool, default=true)
 opt = parser.parse_args()
 
@@ -91,6 +91,7 @@ def save_files(opt):
 
 if opt.write:
     os.makedirs(opt.save_path, exist_ok=True)
+
     writer = SummaryWriter(opt.save_path)
 
 save_files(opt)
@@ -110,8 +111,11 @@ print(f'Using {opt.network}')
 
 # train_dset = Train_Dataset(dir = './data/BSDS_FLOW', debug = debug)
 train_dset = ChairsSDHom(
-    is_cropped=0, root=opt.dataset_path, dstype="train", debug=1000, to_gray=opt.to_gray
+    is_cropped=0, root=opt.dataset_path, dstype="train", to_gray=opt.to_gray, debug=2000
 )
+# val_dset = ChairsSDHom(
+#     is_cropped=0, root=opt.dataset_path, dstype="test", to_gray=opt.to_gray
+# )
 # val_bsds_dset = Train_Dataset(dir = './data/BSDS_VAL_FLOW', debug = 1)
 # val_train_dset = Train_Dataset(dir = './data/BSDS_FLOW', debug = 1)
 val_ouchi_dset = Train_Dataset(dir="./data/Ouchi_FLOW", debug=None)
@@ -134,12 +138,12 @@ val_ouchi_DLoader = DataLoader(
 # val_set8_DLoader = DataLoader(val_set8_dset, batch_size=1, shuffle=False, num_workers=0, pin_memory=False)
 
 optimizer = torch.optim.Adam(net.parameters(), lr=opt.LR)
-scheduler = MultiStepLR(optimizer, milestones=[700, 900], gamma=0.5)  # learning rates
+scheduler = MultiStepLR(optimizer, milestones=[700, 900, 1300], gamma=0.5)  # learning rates
 
 start = 0
 if opt.resume:
-    resume_dir = "/home/siyuan/research/optical_illusion/SpatialTransformer/checkpoints_flownet/net_epoch_999.pth"
-    start = 999
+    resume_dir = "/vulcanscratch/peng2000/SpatialTransformer/exp4_gray_2000data/net_epoch_110.pth"
+    start = 110
     ckp = torch.load(resume_dir)
     net.load_state_dict(ckp["net"])
     optimizer.load_state_dict(ckp["optimizer"])
@@ -162,6 +166,7 @@ def val(val_DLoader, name, step):
                 # pad flow
                 gt_flow = F.pad(gt_flow, (0, 0, 11, 12))[:, :, :, 39:-38]
                 out_path = Path(opt.save_path) / "result" / name
+                out_path.mkdir(parents=True, exist_ok=True)
                 # imshow(im1,'im1_%d'%n_count, dir = out_path)
                 # imshow(im2, 'im2_%d' % n_count, dir =out_path)
                 pred_flow = net(torch.cat((im1, im2), dim=1))
@@ -206,9 +211,7 @@ def val(val_DLoader, name, step):
                 #     color="r",
                 # )
                 # Display the plot
-                plt.savefig("flownet_viz.png", dpi=300)
-                print(f'save to {out_path}')
-                exit()
+                plt.savefig(out_path/f"flownet_viz_gray_{n_count}.png", dpi=300)
 
             if name == "wheel":
 
@@ -237,7 +240,7 @@ def val(val_DLoader, name, step):
                 pred_flow[0, ...] = pred_flow[0, ...].cpu() * torch.from_numpy(~loc)
                 gt_flow[0, ...] = gt_flow[0, ...].cpu() * torch.from_numpy(~loc)
 
-            if opt.write:
+            if False: #opt.write:
                 vfshown(
                     pred_flow[:, 0, :, :],
                     pred_flow[:, 1, :, :],

@@ -9,9 +9,9 @@
 set -x
 echo "----------- INFO ------------"
 echo "Train with SpatialTransformer on ChairsSDHom"
-echo "Experiment ID: exp0"
-echo "Output Dir: /vulcanscratch/peng2000/SpatialTransformer/exp0"
+echo "Experiment ID: exp3_gray"
+echo "Output Dir: /vulcanscratch/peng2000/SpatialTransformer/exp3_gray"
 echo "-----------------------------"
 
-srun zsh -c "conda activate /vulcanscratch/peng2000/raft; python3 train_flownet_sd.py -w --dataset_path /vulcanscratch/peng2000/ChairsSDHom/data --save_path /vulcanscratch/peng2000/SpatialTransformer/exp0 "
+srun zsh -c "conda activate /vulcanscratch/peng2000/raft; python3 train_flownet_sd.py --write --train --to_gray True --network flownet --dataset_path /vulcanscratch/peng2000/ChairsSDHom/data --save_path /vulcanscratch/peng2000/SpatialTransformer/exp3_gray --epoch 100 "
 

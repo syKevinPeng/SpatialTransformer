@@ -73,7 +73,7 @@ class ChairsSDHom(Dataset):
     self.flow_list = sorted( glob( join(root, dstype, 'flow/*.pfm') ) )
 
     if len(image1) != len(image2) or len(image1) == 0:
-        raise Exception(f"images1 and images2 are not the same length or empty:\nimages1:{image1}")
+        raise Exception(f"images1, length: {len(image1)}, and images2 , length: {len(image2)}, are not the same length or empty:")
 
     self.image_list = []
     for i in range(len(self.flow_list)):
