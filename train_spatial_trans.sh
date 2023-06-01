@@ -13,5 +13,14 @@ echo "Experiment ID: exp3_gray"
 echo "Output Dir: /vulcanscratch/peng2000/SpatialTransformer/exp3_gray"
 echo "-----------------------------"
 
-srun zsh -c "conda activate /vulcanscratch/peng2000/raft; python3 train_flownet_sd.py --write --train --to_gray True --network flownet --dataset_path /vulcanscratch/peng2000/ChairsSDHom/data --save_path /vulcanscratch/peng2000/SpatialTransformer/exp3_gray --epoch 100 "
+srun zsh -c "conda activate /vulcanscratch/peng2000/raft; \
+python3 train_flownet_sd.py \
+--write \
+--train \
+--to_gray False \
+--network flownet \
+--dataset_path /vulcanscratch/peng2000/ChairsSDHom/data \
+--save_path /vulcanscratch/peng2000/SpatialTransformer/exp2_RGB \
+--save_frequency 10 \
+--epoch 300 "
 
