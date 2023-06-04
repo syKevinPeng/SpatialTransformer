@@ -7,6 +7,7 @@ import random
 import os
 import imageio
 
+from matplotlib import pyplot as plt
 from torch.utils.tensorboard import SummaryWriter
 from SpatialTransformer import SpatialTransformer
 from network.FlowNetSD import FlowNetSD
@@ -31,12 +32,13 @@ parser.add_argument('-C', type=int, default=3, help='frequency to save results')
 parser.add_argument('--gpu_idx', type=int, default=1)
 parser.add_argument('--debug', type=int, default=False)
 parser.add_argument('--eval', action='store_true')
+parser.add_argument("--train", action="store_true", help="do training")
 parser.add_argument('--exp_weight', default=0.99)
 parser.add_argument('-w', '--write', action='store_true')
 parser.add_argument('--resume', action='store_true')
 parser.add_argument(f'--dataset_path', type=str, default='/mnt/e/Downloads/ChairsSDHom/data')
 opt = parser.parse_args()
-
+ 
 print(opt)
 torch.cuda.device(opt.gpu_idx)
 torch.backends.cudnn.enabled = True
@@ -100,9 +102,9 @@ scheduler = MultiStepLR(optimizer, milestones=[700, 900], gamma=0.5)  # learning
 
 start = 0
 if opt.resume:
-    resume_dir = './pretrained_model/wheel/net_epoch_850.pth'
-    start = 990
-    ckp = torch.load(resume_dir, map_location=lambda storage, loc: storage.cuda(opt.gpu_idx))
+    resume_dir = '/vulcanscratch/peng2000/SpatialTransformer/exp1_gray/net_epoch_970.pth'
+    start = 980
+    ckp = torch.load(resume_dir)
     net.load_state_dict(ckp['net'])
     optimizer.load_state_dict(ckp['optimizer'])
 
@@ -121,9 +123,32 @@ def val(val_DLoader, name, step):
                 im1 = F.pad(im1, (0, 0, 11, 12))[:, :, :, 39:-38]
                 im2 = F.pad(im2, (0, 0, 11, 12))[:, :, :, 39:-38]
                 gt_flow = F.pad(gt_flow, (0, 0, 11, 12))[:, :, :, 39:-38]
-                imshow(im1,'im1_%d'%n_count, dir = "./result/ouchi_data")
-                imshow(im2, 'im2_%d' % n_count, dir = "./result/ouchi_data")
-            pred_flow = net(torch.cat((im1, im2), dim=1))
+                out_path = Path(opt.save_path) / "result" / name
+                out_path.mkdir(parents=True, exist_ok=True)
+                pred_flow = net(torch.cat((im1, im2), dim=1))
+                pred_flow = pred_flow.cpu().squeeze(0).permute(1, 2, 0)
+                # also get the image with padded border
+                img1 = im1.cpu().squeeze(0).permute(1, 2, 0)
+                if pred_flow.shape[:2] != img1.shape[:2]:
+                    raise ValueError(
+                        f"pred_flow {pred_flow.shape[:2]} and image {img1.shape[:2]} should"
+                        " have same shape"
+                    )
+                w, h = pred_flow.shape[:2]
+                # visulize the flow
+                x, y = np.meshgrid(np.arange(w), np.arange(h))
+                # Get the x and y components of the flow vectors
+                pred_u = pred_flow[:, :, 0]
+                pred_v = pred_flow[:, :, 1]
+                # Set the arrow spacing and scale
+                spacing = 10
+                scale = None
+                # Create a new image with the original image and flow arrows
+                fig, ax = plt.subplots()
+                ax.imshow(img1)
+                ax.quiver(x[::spacing, ::spacing], y[::spacing, ::spacing], pred_u[::spacing, ::spacing], pred_v[::spacing, ::spacing], scale=scale, color='r')
+                # Display the plot
+                plt.savefig(out_path/f"flownet_viz_gray_{n_count}.png", dpi=300)
             if name == 'wheel':
                 def compute_gradient(img):
                     import torch.nn.functional as F
@@ -150,16 +175,16 @@ def val(val_DLoader, name, step):
                 gt_flow[0, ...] = gt_flow[0, ...].cpu() * torch.from_numpy(~loc)
 
 
-            vfshown(pred_flow[:, 0, :, :], pred_flow[:, 1, :, :], sample_rate=sample_rate, save_fig=False,
-                    file_name=os.path.join(opt.save_path + 'pre_%d_%s_%d_flow' % (n_count, name, step)),keepscale=keep_scale, scale = scale)
-            vfshown(gt_flow[:, 0, :, :], gt_flow[:, 1, :, :], sample_rate=sample_rate, save_fig=False,
-                    file_name=os.path.join(opt.save_path + 'gt_%d_%s_flow' % (n_count,name)),keepscale=keep_scale, scale = scale)
+            # vfshown(pred_flow[:, 0, :, :], pred_flow[:, 1, :, :], sample_rate=sample_rate, save_fig=False,
+            #         file_name=os.path.join(opt.save_path + 'pre_%d_%s_%d_flow' % (n_count, name, step)),keepscale=keep_scale, scale = scale)
+            # vfshown(gt_flow[:, 0, :, :], gt_flow[:, 1, :, :], sample_rate=sample_rate, save_fig=False,
+            #         file_name=os.path.join(opt.save_path + 'gt_%d_%s_flow' % (n_count,name)),keepscale=keep_scale, scale = scale)
 
-            img = vis_flow(gt_flow.cpu().numpy().squeeze())
-            imageio.imsave(os.path.join(opt.save_path + 'gt_%d_%s_color.png' % (n_count,name)), img)
+            # img = vis_flow(gt_flow.cpu().numpy().squeeze())
+            # imageio.imsave(os.path.join(opt.save_path + 'gt_%d_%s_color.png' % (n_count,name)), img)
 
-            img = vis_flow(pred_flow.cpu().numpy().squeeze())
-            imageio.imsave(os.path.join(opt.save_path + 'pre_%d_%s_%d_color.png' % (n_count, name, step)), img)
+            # img = vis_flow(pred_flow.cpu().numpy().squeeze())
+            # imageio.imsave(os.path.join(opt.save_path + 'pre_%d_%s_%d_color.png' % (n_count, name, step)), img)
 
 
             # Draw the error plot in term of angles
@@ -199,7 +224,6 @@ def val(val_DLoader, name, step):
                     pass
 
 if opt.eval:
-    opt.save_path = './tmp/FastView/'
     # val(val_wheel_DLoader, 'wheel', -1)
     val(val_ouchi_DLoader, 'ouchi', -1)
     exit(0)
@@ -208,45 +232,47 @@ if opt.resume:
     pass
 total_loss = MultiScale(startScale=1,numScales=7,norm= 'L2')
 
-with tqdm(total=opt.epoch - start, ncols=100, position=0, leave=True) as t:
-    for epoch in range(start, opt.epoch):
-        scheduler.step(epoch)
-        # One epoch training
-        bat_num = len(train_DLoader)
-        for n_count, bat in enumerate(train_DLoader):
-            net.train()
-            optimizer.zero_grad()
+if opt.train:
+    print(f"Begin training")
+    with tqdm(total=opt.epoch - start, ncols=100, position=0, leave=True) as t:
+        for epoch in range(start, opt.epoch):
+            scheduler.step(epoch)
+            # One epoch training
+            bat_num = len(train_DLoader)
+            for n_count, bat in enumerate(train_DLoader):
+                net.train()
+                optimizer.zero_grad()
 
-            bat_im1, bat_im2, bat_gt_flow = bat['im1'].cuda(), bat['im2'].cuda(), bat['flow'].cuda()
+                bat_im1, bat_im2, bat_gt_flow = bat['im1'].cuda(), bat['im2'].cuda(), bat['flow'].cuda()
 
-            bat_pred_flow = net(torch.cat((bat_im1, bat_im2),dim=1))
-            loss, list = total_loss(bat_im1, bat_im2, bat_pred_flow, bat_gt_flow)
+                bat_pred_flow = net(torch.cat((bat_im1, bat_im2),dim=1))
+                loss, list = total_loss(bat_im1, bat_im2, bat_pred_flow, bat_gt_flow)
 
-            loss.backward()
-            optimizer.step()
+                loss.backward()
+                optimizer.step()
 
-            iters = epoch * bat_num + n_count
-            if opt.write:
-                # for name in list.keys():
-                #     writer.add_scalar('Train/%s'%name, list[name].cpu().detach().numpy(),iters)
-                writer.add_scalar('Train/loss', loss.cpu().detach().numpy(), iters)
-                writer.flush()
+                iters = epoch * bat_num + n_count
+                if opt.write:
+                    # for name in list.keys():
+                    #     writer.add_scalar('Train/%s'%name, list[name].cpu().detach().numpy(),iters)
+                    writer.add_scalar('Train/loss', loss.cpu().detach().numpy(), iters)
+                    writer.flush()
 
 
-            # Do Validation in several runs.
-            if  (n_count == 0) or (opt.debug and epoch % 250 == 0):
-                # val(val_bsds_DLoader, 'bsds', epoch)
-                val(val_ouchi_DLoader, 'ouchi', epoch)
-                # val(val_train_DLoader, 'train', epoch)
-                # val(val_movsin_DLoader, 'movsin', epoch)
-                # val(val_wheel_DLoader, 'wheel', epoch)
+                # Do Validation in several runs.
+                if  (n_count == 0) or (opt.debug and epoch % 250 == 0):
+                    # val(val_bsds_DLoader, 'bsds', epoch)
+                    val(val_ouchi_DLoader, 'ouchi', epoch)
+                    # val(val_train_DLoader, 'train', epoch)
+                    # val(val_movsin_DLoader, 'movsin', epoch)
+                    # val(val_wheel_DLoader, 'wheel', epoch)
 
-    
-        t.set_postfix(loss='%1.3e' % loss.detach().cpu().numpy())
-        t.update()
-        if epoch % opt.save_frequency == 0 or epoch == opt.epoch - 1:
-            state = {'net'       : net.state_dict(),
-                     'optimizer' : optimizer.state_dict(),
-                     'scheduler' : scheduler.state_dict()}
-            torch.save(state, os.path.join(opt.save_path, "net_epoch_%s.pth"%epoch))
+        
+            t.set_postfix(loss='%1.3e' % loss.detach().cpu().numpy())
+            t.update()
+            if epoch % opt.save_frequency == 0 or epoch == opt.epoch - 1:
+                state = {'net'       : net.state_dict(),
+                        'optimizer' : optimizer.state_dict(),
+                        'scheduler' : scheduler.state_dict()}
+                torch.save(state, os.path.join(opt.save_path, "net_epoch_%s.pth"%epoch))
 
