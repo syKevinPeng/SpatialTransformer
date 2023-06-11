@@ -142,8 +142,8 @@ scheduler = MultiStepLR(optimizer, milestones=[700, 900, 1300], gamma=0.5)  # le
 
 start = 0
 if opt.resume:
-    resume_dir = "/vulcanscratch/peng2000/SpatialTransformer/exp4_gray_2000data/net_epoch_110.pth"
-    start = 110
+    resume_dir = "/vulcanscratch/peng2000/SpatialTransformer/exp2_RGB_1000/net_epoch_1000.pth"
+    start = 450
     ckp = torch.load(resume_dir)
     net.load_state_dict(ckp["net"])
     optimizer.load_state_dict(ckp["optimizer"])
