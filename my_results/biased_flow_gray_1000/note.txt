@@ -1,0 +1,1 @@
+trained on 1000 images for about 1000 gray scale images
