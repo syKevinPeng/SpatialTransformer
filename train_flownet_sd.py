@@ -5,7 +5,7 @@ import warnings
 import numpy as np
 import random
 import os
-import imageio
+import wandb
 
 from torch.utils.tensorboard import SummaryWriter
 from SpatialTransformer import SpatialTransformer
@@ -51,6 +51,8 @@ parser.add_argument(
 )
 parser.add_argument("--network", type=str, default="flownet")
 parser.add_argument("--to_gray", type=bool, default=true)
+parser.add_argument('--name', type=str, default='flownet-exp0')    
+parser.add_argument("--notes", type=str, default="Whole dataset, gray images")
 opt = parser.parse_args()
 
 print(opt)
@@ -61,7 +63,6 @@ dtype = torch.cuda.FloatTensor
 
 warnings.filterwarnings("ignore")
 
-
 def setup_seed(seed):
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
@@ -69,6 +70,18 @@ def setup_seed(seed):
     random.seed(seed)
     torch.backends.cudnn.deterministic = True
 
+if opt.write:
+    os.makedirs(opt.save_path, exist_ok=True)
+
+    run = wandb.init(
+    # Set the project where this run will be logged
+    project="SpatialTransformer",
+    # name of the experiment
+    name=opt.name,
+    # notes
+    notes=opt.notes,
+    # Track hyperparameters and run metadata
+    config=opt)
 
 setup_seed(0)
 
@@ -89,10 +102,7 @@ def save_files(opt):
             copytree("./utils/", os.path.join(src_dir, "utils"))
 
 
-if opt.write:
-    os.makedirs(opt.save_path, exist_ok=True)
 
-    writer = SummaryWriter(opt.save_path)
 
 save_files(opt)
 
@@ -111,8 +121,7 @@ print(f'Using {opt.network}')
 
 # train_dset = Train_Dataset(dir = './data/BSDS_FLOW', debug = debug)
 train_dset = ChairsSDHom(
-    is_cropped=0, root=opt.dataset_path, dstype="train", to_gray=opt.to_gray, debug=2000
-)
+    is_cropped=0, root=opt.dataset_path, dstype="train", to_gray=opt.to_gray, debug=None)
 # val_dset = ChairsSDHom(
 #     is_cropped=0, root=opt.dataset_path, dstype="test", to_gray=opt.to_gray
 # )
@@ -240,44 +249,6 @@ def val(val_DLoader, name, step):
                 pred_flow[0, ...] = pred_flow[0, ...].cpu() * torch.from_numpy(~loc)
                 gt_flow[0, ...] = gt_flow[0, ...].cpu() * torch.from_numpy(~loc)
 
-            if False: #opt.write:
-                vfshown(
-                    pred_flow[:, 0, :, :],
-                    pred_flow[:, 1, :, :],
-                    sample_rate=sample_rate,
-                    save_fig=False,
-                    file_name=os.path.join(
-                        opt.save_path + "pre_%d_%s_%d_flow" % (n_count, name, step)
-                    ),
-                    keepscale=keep_scale,
-                    scale=scale,
-                )
-                vfshown(
-                    gt_flow[:, 0, :, :],
-                    gt_flow[:, 1, :, :],
-                    sample_rate=sample_rate,
-                    save_fig=False,
-                    file_name=os.path.join(
-                        opt.save_path + "gt_%d_%s_flow" % (n_count, name)
-                    ),
-                    keepscale=keep_scale,
-                    scale=scale,
-                )
-
-                img = vis_flow(gt_flow.cpu().numpy().squeeze())
-                imageio.imsave(
-                    os.path.join(opt.save_path + "gt_%d_%s_color.png" % (n_count, name)),
-                    img,
-                )
-
-                img = vis_flow(pred_flow.cpu().numpy().squeeze())
-                imageio.imsave(
-                    os.path.join(
-                        opt.save_path + "pre_%d_%s_%d_color.png" % (n_count, name, step)
-                    ),
-                    img,
-                )
-
             # Draw the error plot in term of angles
             if name == "wheel":
                 from scipy.ndimage.morphology import (
@@ -308,27 +279,6 @@ def val(val_DLoader, name, step):
                         opt.save_path + "pre_%d_%s_%d_diff" % (n_count, name, step)
                     ),
                 )
-
-            # if name == 'train':
-            #     spatial_transform = SpatialTransformer(im1.shape[-2:]).cuda()
-            #     im1_warp = spatial_transform(im1, pred_flow)
-            #     imshow(im1,dir=opt.save_path, str='im1')
-            #     imshow(im2, dir=opt.save_path, str='im2')
-            #     imshow(im1_warp, dir=opt.save_path, str='im1_warp_%d'%step)
-
-            if opt.write:
-                try:
-                    [loss, epe] = total_loss(im1, im2, pred_flow, gt_flow)
-                    writer.add_scalar(
-                        "Test_%s/loss" % name, loss.cpu().detach().numpy(), iters
-                    )
-                    writer.add_scalar(
-                        "Test_%s/epe" % name, epe.cpu().detach().numpy(), iters
-                    )
-                except:
-                    pass
-
-
 if opt.eval:
     print(f"Begin evaluation")
     # val(val_wheel_DLoader, 'wheel', -1)
@@ -369,17 +319,8 @@ if opt.train:
                 if opt.write:
                     # for name in list.keys():
                     #     writer.add_scalar('Train/%s'%name, list[name].cpu().detach().numpy(),iters)
-                    writer.add_scalar("Train/loss", loss.cpu().detach().numpy(), iters)
-                    writer.flush()
-
-                # Do Validation in several runs.
-                if (n_count == 0) or (opt.debug and epoch % 250 == 0):
-                    # val(val_bsds_DLoader, 'bsds', epoch)
-                    # val(val_ouchi_DLoader, "ouchi", epoch)
-                    # val(val_train_DLoader, 'train', epoch)
-                    # val(val_movsin_DLoader, 'movsin', epoch)
-                    # val(val_wheel_DLoader, 'wheel', epoch)
-                    pass
+                    wandb.log({"train/loss": loss.cpu().detach().numpy(), 
+                               "epoch": epoch})
 
             t.set_postfix(loss="%1.3e" % loss.detach().cpu().numpy())
             t.update()
@@ -392,3 +333,5 @@ if opt.train:
                 torch.save(
                     state, os.path.join(opt.save_path, "net_epoch_%s.pth" % epoch)
                 )
+
+
