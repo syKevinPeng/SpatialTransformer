@@ -1,13 +1,13 @@
 python3 train_flownet_sd.py \
 --write \
 --train \
---to_gray True \
+--to_gray False \
 --network flownet \
 --dataset_path /home/siyuan/research/dataset/ChairsSDHom/data \
---save_path /home/siyuan/research/SpatialTransformer/my_results \
+--save_path /home/siyuan/research/SpatialTransformer/my_results/biased_flow_rgb_whole \
 --save_frequency 100 \
---epoch 1000 \
---notes 'Whole dataset, gray images'
+--epoch 1000 \ 
+--bat_size 64
 
 
 # python3 train_flownet_sd.py \

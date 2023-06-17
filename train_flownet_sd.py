@@ -51,8 +51,8 @@ parser.add_argument(
 )
 parser.add_argument("--network", type=str, default="flownet")
 parser.add_argument("--to_gray", type=bool, default=true)
-parser.add_argument('--name', type=str, default='flownet-exp0')    
-parser.add_argument("--notes", type=str, default="Whole dataset, gray images")
+parser.add_argument('--name', type=str, default='flownet-exp3')    
+parser.add_argument("--notes", type=str, default="Whole dataset, rgb images")
 opt = parser.parse_args()
 
 print(opt)
