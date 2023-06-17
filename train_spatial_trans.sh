@@ -1,13 +1,13 @@
 python3 train_flownet_sd.py \
 --write \
 --train \
+--bat_size 64 \
 --to_gray False \
 --network flownet \
 --dataset_path /home/siyuan/research/dataset/ChairsSDHom/data \
 --save_path /home/siyuan/research/SpatialTransformer/my_results/biased_flow_rgb_whole \
 --save_frequency 100 \
---epoch 1000 \ 
---bat_size 64
+--epoch 1000 
 
 
 # python3 train_flownet_sd.py \

@@ -1,5 +1,4 @@
 import argparse
-from sympy import true
 import torch
 import warnings
 import numpy as np
@@ -50,16 +49,9 @@ parser.add_argument(
     f"--dataset_path", type=str, default="/mnt/e/Downloads/ChairsSDHom/data"
 )
 parser.add_argument("--network", type=str, default="flownet")
-parser.add_argument("--to_gray", type=bool, default=true)
+parser.add_argument("--to_gray", type=bool, default=True)
 parser.add_argument('--name', type=str, default='flownet-exp3')    
 parser.add_argument("--notes", type=str, default="Whole dataset, rgb images")
-opt = parser.parse_args()
-
-print(opt)
-torch.cuda.device(opt.gpu_idx)
-torch.backends.cudnn.enabled = True
-torch.backends.cudnn.benchmark = True
-dtype = torch.cuda.FloatTensor
 
 warnings.filterwarnings("ignore")
 
@@ -69,23 +61,6 @@ def setup_seed(seed):
     np.random.seed(seed)
     random.seed(seed)
     torch.backends.cudnn.deterministic = True
-
-if opt.write:
-    os.makedirs(opt.save_path, exist_ok=True)
-
-    run = wandb.init(
-    # Set the project where this run will be logged
-    project="SpatialTransformer",
-    # name of the experiment
-    name=opt.name,
-    # notes
-    notes=opt.notes,
-    # Track hyperparameters and run metadata
-    config=opt)
-
-setup_seed(0)
-
-
 def save_files(opt):
     if opt.write:
         from shutil import copyfile, copytree
@@ -101,65 +76,94 @@ def save_files(opt):
             copytree("./network/", os.path.join(src_dir, "network"))
             copytree("./utils/", os.path.join(src_dir, "utils"))
 
+def load_dataset(opt):
+    train_dset = ChairsSDHom(
+        is_cropped=0, root=opt.dataset_path, dstype="train", to_gray=opt.to_gray, debug=debug)
+    val_ouchi_dset = Train_Dataset(dir="./data/Ouchi_FLOW", debug=None)
+    train_DLoader = DataLoader(
+        train_dset, batch_size=opt.bat_size, shuffle=True, num_workers=0, pin_memory=0
+    )
+    val_ouchi_DLoader = DataLoader(
+        val_ouchi_dset, batch_size=1, shuffle=False, num_workers=0, pin_memory=0
+    )
+    return train_DLoader, val_ouchi_DLoader
+
+def load_network(opt):
+    if opt.network == "flownet":
+        net = FlowNetSD().cuda()
+    elif opt.network == "cnn":
+        net = CNN(depth=10).cuda()
+    else:
+        raise Exception("network not supported")
+    print(f'Using {opt.network}')
+    return net
+
+def train(opt, net, train_DLoader):
+    optimizer = torch.optim.Adam(net.parameters(), lr=opt.LR)
+    scheduler = MultiStepLR(optimizer, milestones=[700, 900, 1300], gamma=0.5)  # learning rates
+
+    start_epoch = 0
+    if wandb.run.resumed:
+        resume_dir = "/home/siyuan/research/SpatialTransformer/my_results/biased_flow_rgb_whole"
+        ckp = torch.load(resume_dir)
+        net.load_state_dict(ckp["net"])
+        optimizer.load_state_dict(ckp["optimizer"])
+        loss = ckp["loss"]
+        start_epoch = ckp["epoch"]
+        print(f"load from {resume_dir} at epoch {start_epoch}")
+
+    flownet_loss = MultiScale(startScale=1, numScales=7, norm="L2")
+    cnn_loss = total_loss
+
+    print(f"Begin training")
+    with tqdm(total=opt.epoch - start_epoch, ncols=100, position=0, leave=True) as t:
+        for start_epoch in range(start_epoch, opt.epoch):
+            scheduler.step(start_epoch)
+            # One epoch training
+            bat_num = len(train_DLoader)
+            for n_count, bat in enumerate(train_DLoader):
+                net.train()
+                optimizer.zero_grad()
+
+                bat_im1, bat_im2, bat_gt_flow = (
+                    bat["im1"].cuda(),
+                    bat["im2"].cuda(),
+                    bat["flow"].cuda(),
+                )
+
+                bat_pred_flow = net(torch.cat((bat_im1, bat_im2), dim=1))
+                if opt.network == "flownet":
+                    loss, list = flownet_loss(bat_im1, bat_im2, bat_pred_flow, bat_gt_flow)
+                elif opt.network == "cnn":
+                    loss, list = cnn_loss(bat_im1, bat_im2, bat_pred_flow, bat_gt_flow, verbose=True)
+                loss.backward()
+                optimizer.step()
+
+                iters = start_epoch * bat_num + n_count
+                if opt.write:
+                    # for name in list.keys():
+                    #     writer.add_scalar('Train/%s'%name, list[name].cpu().detach().numpy(),iters)
+                    wandb.log({"train/loss": loss.cpu().detach().numpy(), 
+                               "epoch": start_epoch})
+
+            t.set_postfix(loss="%1.3e" % loss.detach().cpu().numpy())
+            t.update()
+            if start_epoch % opt.save_frequency == 0 or start_epoch == opt.epoch - 1:
+                state = {
+                    "net": net.state_dict(),
+                    "optimizer": optimizer.state_dict(),
+                    "scheduler": scheduler.state_dict(),
+                    "epoch": start_epoch,
+                    "loss": loss,
+                }
+                torch.save(
+                    state, os.path.join(opt.save_path, "net_epoch_%s.pth" % start_epoch)
+                )
+                # save to wandb
+                wandb.save(os.path.join(opt.save_path, "net_epoch_%s.pth" % start_epoch))
 
 
-
-save_files(opt)
-
-if opt.debug:
-    debug = 20
-else:
-    debug = None
-
-if opt.network == "flownet":
-    net = FlowNetSD().cuda()
-elif opt.network == "cnn":
-    net = CNN(depth=10).cuda()
-else:
-    raise Exception("network not supported")
-print(f'Using {opt.network}')
-
-# train_dset = Train_Dataset(dir = './data/BSDS_FLOW', debug = debug)
-train_dset = ChairsSDHom(
-    is_cropped=0, root=opt.dataset_path, dstype="train", to_gray=opt.to_gray, debug=None)
-# val_dset = ChairsSDHom(
-#     is_cropped=0, root=opt.dataset_path, dstype="test", to_gray=opt.to_gray
-# )
-# val_bsds_dset = Train_Dataset(dir = './data/BSDS_VAL_FLOW', debug = 1)
-# val_train_dset = Train_Dataset(dir = './data/BSDS_FLOW', debug = 1)
-val_ouchi_dset = Train_Dataset(dir="./data/Ouchi_FLOW", debug=None)
-# val_movsin_dset = Train_Dataset(dir = './data/MovSin_v2_FLOW', debug = None)
-# val_wheel_dset = Train_Dataset(dir = './data/Wheel_FLOW', debug = None)
-# val_set8_dset = Train_Dataset(dir = './data/Set8_FLOW', debug = 1)
-# val_train_dset= ChairsSDHom(is_cropped = 0, root = '../flownet2_pytorch/data/ChairsSDHom/data', dstype = 'train', replicates = 1, debug=1)
-
-
-train_DLoader = DataLoader(
-    train_dset, batch_size=opt.bat_size, shuffle=True, num_workers=0, pin_memory=0
-)
-# val_bsds_DLoader = DataLoader(val_bsds_dset, batch_size=1, shuffle=False, num_workers=0, pin_memory=False)
-val_ouchi_DLoader = DataLoader(
-    val_ouchi_dset, batch_size=1, shuffle=False, num_workers=0, pin_memory=0
-)
-# val_train_DLoader = DataLoader(val_train_dset, batch_size=1, shuffle=False, num_workers=0, pin_memory=False)
-# val_movsin_DLoader = DataLoader(val_movsin_dset, batch_size=1, shuffle=False, num_workers=0, pin_memory=False)
-# val_wheel_DLoader = DataLoader(val_wheel_dset, batch_size=1, shuffle=False, num_workers=0, pin_memory=False)
-# val_set8_DLoader = DataLoader(val_set8_dset, batch_size=1, shuffle=False, num_workers=0, pin_memory=False)
-
-optimizer = torch.optim.Adam(net.parameters(), lr=opt.LR)
-scheduler = MultiStepLR(optimizer, milestones=[700, 900, 1300], gamma=0.5)  # learning rates
-
-start = 0
-if opt.resume:
-    resume_dir = "/vulcanscratch/peng2000/SpatialTransformer/exp2_RGB_1000/net_epoch_1000.pth"
-    start = 450
-    ckp = torch.load(resume_dir)
-    net.load_state_dict(ckp["net"])
-    optimizer.load_state_dict(ckp["optimizer"])
-    print(f"load from {resume_dir}")
-
-
-def val(val_DLoader, name, step):
+def val(opt, net, val_DLoader, name):
     net.eval()
     for n_count, bat in enumerate(val_DLoader):
         with torch.no_grad():
@@ -176,8 +180,6 @@ def val(val_DLoader, name, step):
                 gt_flow = F.pad(gt_flow, (0, 0, 11, 12))[:, :, :, 39:-38]
                 out_path = Path(opt.save_path) / "result" / name
                 out_path.mkdir(parents=True, exist_ok=True)
-                # imshow(im1,'im1_%d'%n_count, dir = out_path)
-                # imshow(im2, 'im2_%d' % n_count, dir =out_path)
                 pred_flow = net(torch.cat((im1, im2), dim=1))
                 # remove redundent first channel and swap channels to w, h, c
                 pred_flow = pred_flow.cpu().squeeze(0).permute(1, 2, 0)
@@ -195,14 +197,6 @@ def val(val_DLoader, name, step):
                 pred_u = pred_flow[:, :, 0]
                 pred_v = pred_flow[:, :, 1]
 
-                # gt_u = gt_flow[:, :, 0]
-                # gt_v = gt_flow[:, :, 1]
-
-                # Calculate the difference between the flow vectors and scale it for better visualization
-                # diff_scale = 10
-                # diff_u = (pred_u - gt_u) * diff_scale
-                # diff_v = (pred_v - gt_v) * diff_scale
-
                 # Set the arrow spacing and scale
                 spacing = 10
                 scale = None
@@ -210,16 +204,6 @@ def val(val_DLoader, name, step):
                 fig, ax = plt.subplots()
                 ax.imshow(img1)
                 ax.quiver(x[::spacing, ::spacing], y[::spacing, ::spacing], pred_u[::spacing, ::spacing], pred_v[::spacing, ::spacing], scale=scale, color='r')
-                # ax.quiver(x[::spacing, ::spacing], y[::spacing, ::spacing], gt_u[::spacing, ::spacing], -gt_v[::spacing, ::spacing], scale=scale, color='g')
-                # ax.quiver(
-                #     x[::spacing, ::spacing],
-                #     y[::spacing, ::spacing],
-                #     diff_u[::spacing, ::spacing],
-                #     -diff_v[::spacing, ::spacing],
-                #     scale=scale,
-                #     color="r",
-                # )
-                # Display the plot
                 plt.savefig(out_path/f"flownet_viz_gray_{n_count}.png", dpi=300)
 
             if name == "wheel":
@@ -243,95 +227,55 @@ def val(val_DLoader, name, step):
                 keep_scale = True
                 scale = 15
 
-            if name == "movsin":
-                a2 = im2.cpu().numpy().squeeze()
-                loc = a2 >= 0.4
-                pred_flow[0, ...] = pred_flow[0, ...].cpu() * torch.from_numpy(~loc)
-                gt_flow[0, ...] = gt_flow[0, ...].cpu() * torch.from_numpy(~loc)
 
-            # Draw the error plot in term of angles
-            if name == "wheel":
-                from scipy.ndimage.morphology import (
-                    binary_dilation,
-                    generate_binary_structure,
-                )
+if __name__ == "__main__":
+    opt = parser.parse_args()
 
-                struct = generate_binary_structure(2, 1)
-                loc = binary_dilation(~loc.squeeze(), struct)
-                # loc = binary_dilation(loc, struct)
+    torch.cuda.device(opt.gpu_idx)
+    torch.backends.cudnn.enabled = True
+    torch.backends.cudnn.benchmark = True
+    dtype = torch.cuda.FloatTensor
 
-                a1 = pred_flow.cpu().numpy().squeeze()
-                a2 = gt_flow.cpu().numpy().squeeze()
-                a1_unit = a1 / (np.sqrt(a1[0, ...] ** 2 + a1[1, ...] ** 2))
-                a2_unit = a2 / (np.sqrt(a2[0, ...] ** 2 + a2[1, ...] ** 2))
-                # a2_unit[np.isnan(a2_unit)] = 0
+    if opt.write:
+        os.makedirs(opt.save_path, exist_ok=True)
 
-                diff = (a1_unit - a2_unit) * (loc).squeeze()
-                # keep_scale = False
-                # scale = 5
+    # setup wandb run
+    run = wandb.init(
+    # Set the project where this run will be logged
+    project="SpatialTransformer",
+    # name of the experiment
+    name=opt.name,
+    # notes
+    notes=opt.notes,
+    # Track hyperparameters and run metadata
+    config=opt,
+    # flag to resume
+    resume=opt.resume)
 
-                vfshown(
-                    diff[0, :, :],
-                    diff[1, :, :],
-                    sample_rate=5,
-                    save_fig=True,
-                    file_name=os.path.join(
-                        opt.save_path + "pre_%d_%s_%d_diff" % (n_count, name, step)
-                    ),
-                )
-if opt.eval:
-    print(f"Begin evaluation")
-    # val(val_wheel_DLoader, 'wheel', -1)
-    val(val_ouchi_DLoader, "ouchi", -1)
-    exit(0)
+    setup_seed(0)
+    save_files(opt)
 
-if opt.resume:
-    pass
-flownet_loss = MultiScale(startScale=1, numScales=7, norm="L2")
-cnn_loss = total_loss
+    if opt.debug:
+        debug = 20
+    else:
+        debug = None
 
-if opt.train:
-    print(f"Begin training")
-    with tqdm(total=opt.epoch - start, ncols=100, position=0, leave=True) as t:
-        for epoch in range(start, opt.epoch):
-            scheduler.step(epoch)
-            # One epoch training
-            bat_num = len(train_DLoader)
-            for n_count, bat in enumerate(train_DLoader):
-                net.train()
-                optimizer.zero_grad()
+    # get dataloader
+    train_DLoader, val_ouchi_DLoader = load_dataset(opt)
+    # get network
+    net = load_network(opt)
 
-                bat_im1, bat_im2, bat_gt_flow = (
-                    bat["im1"].cuda(),
-                    bat["im2"].cuda(),
-                    bat["flow"].cuda(),
-                )
+    if opt.train:
+        print(f"Begin training")
+        train(opt, net, train_DLoader)
+        print(f"Finish training")
+    if opt.eval:
+        print(f"Begin evaluation")
+        val(val_ouchi_DLoader, "ouchi", -1)
+        print(f"Finish evaluation")
+        exit(0)
+    
 
-                bat_pred_flow = net(torch.cat((bat_im1, bat_im2), dim=1))
-                if opt.network == "flownet":
-                    loss, list = flownet_loss(bat_im1, bat_im2, bat_pred_flow, bat_gt_flow)
-                elif opt.network == "cnn":
-                    loss, list = cnn_loss(bat_im1, bat_im2, bat_pred_flow, bat_gt_flow, verbose=True)
-                loss.backward()
-                optimizer.step()
-
-                iters = epoch * bat_num + n_count
-                if opt.write:
-                    # for name in list.keys():
-                    #     writer.add_scalar('Train/%s'%name, list[name].cpu().detach().numpy(),iters)
-                    wandb.log({"train/loss": loss.cpu().detach().numpy(), 
-                               "epoch": epoch})
-
-            t.set_postfix(loss="%1.3e" % loss.detach().cpu().numpy())
-            t.update()
-            if epoch % opt.save_frequency == 0 or epoch == opt.epoch - 1:
-                state = {
-                    "net": net.state_dict(),
-                    "optimizer": optimizer.state_dict(),
-                    "scheduler": scheduler.state_dict(),
-                }
-                torch.save(
-                    state, os.path.join(opt.save_path, "net_epoch_%s.pth" % epoch)
-                )
+    
 
 
