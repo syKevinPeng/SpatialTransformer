@@ -52,6 +52,7 @@ parser.add_argument("--network", type=str, default="flownet")
 parser.add_argument("--to_gray", type=bool, default=True)
 parser.add_argument('--name', type=str, default='flownet-exp3')    
 parser.add_argument("--notes", type=str, default="Whole dataset, rgb images")
+parser.add_argument("--load_path", type=str, default=None)
 
 warnings.filterwarnings("ignore")
 
@@ -104,7 +105,7 @@ def train(opt, net, train_DLoader):
 
     start_epoch = 0
     if wandb.run.resumed:
-        resume_dir = "/home/siyuan/research/SpatialTransformer/my_results/biased_flow_rgb_whole"
+        resume_dir = opt.load_path
         ckp = torch.load(resume_dir)
         net.load_state_dict(ckp["net"])
         optimizer.load_state_dict(ckp["optimizer"])
@@ -165,6 +166,14 @@ def train(opt, net, train_DLoader):
 
 def val(opt, net, val_DLoader, name):
     net.eval()
+    # load pytorch model
+    if opt.load_path:
+        ckp = torch.load(opt.load_path)
+        net.load_state_dict(ckp["net"])
+        print(f"load from {opt.load_path}")
+    else:
+        raise Exception("load path not specified")
+    output_imgs = []
     for n_count, bat in enumerate(val_DLoader):
         with torch.no_grad():
             # bat = next(iter(val_DLoader))
@@ -176,15 +185,23 @@ def val(opt, net, val_DLoader, name):
                 # pad images
                 im1 = F.pad(im1, (0, 0, 11, 12))[:, :, :, 39:-38]
                 im2 = F.pad(im2, (0, 0, 11, 12))[:, :, :, 39:-38]
-                # pad flow
-                gt_flow = F.pad(gt_flow, (0, 0, 11, 12))[:, :, :, 39:-38]
-                out_path = Path(opt.save_path) / "result" / name
+                
+                out_path = Path(opt.save_path) / "viz_result"
                 out_path.mkdir(parents=True, exist_ok=True)
                 pred_flow = net(torch.cat((im1, im2), dim=1))
                 # remove redundent first channel and swap channels to w, h, c
                 pred_flow = pred_flow.cpu().squeeze(0).permute(1, 2, 0)
                 # also get the image with padded border
                 img1 = im1.cpu().squeeze(0).permute(1, 2, 0)
+
+                # pad flow
+                gt_flow = F.pad(gt_flow, (0, 0, 11, 12))[:, :, :, 39:-38]
+                # swap axis to w, h, c
+                gt_flow = gt_flow.cpu().squeeze(0).permute(1, 2, 0)
+                # # resize to output img size 
+                # print(pred_flow.shape, gt_flow.shape)
+                # exit()
+                # gt_flow = F.interpolate(gt_flow, size=pred_flow.shape[:2], mode="nearest").squeeze(0)
                 if pred_flow.shape[:2] != img1.shape[:2]:
                     raise ValueError(
                         f"pred_flow {pred_flow.shape[:2]} and image {img1.shape[:2]} should"
@@ -197,14 +214,20 @@ def val(opt, net, val_DLoader, name):
                 pred_u = pred_flow[:, :, 0]
                 pred_v = pred_flow[:, :, 1]
 
+                gt_u = gt_flow[:, :, 0]
+                gt_v = gt_flow[:, :, 1]
+
                 # Set the arrow spacing and scale
                 spacing = 10
                 scale = None
                 # Create a new image with the original image and flow arrows
                 fig, ax = plt.subplots()
                 ax.imshow(img1)
-                ax.quiver(x[::spacing, ::spacing], y[::spacing, ::spacing], pred_u[::spacing, ::spacing], pred_v[::spacing, ::spacing], scale=scale, color='r')
+                ax.quiver(x[::spacing, ::spacing], y[::spacing, ::spacing], -pred_u[::spacing, ::spacing], pred_v[::spacing, ::spacing], scale=scale, color='r')
+                ax.quiver(x[::spacing, ::spacing], y[::spacing, ::spacing], -gt_u[::spacing, ::spacing], gt_v[::spacing, ::spacing], scale=scale, color='b')
                 plt.savefig(out_path/f"flownet_viz_gray_{n_count}.png", dpi=300)
+                output_imgs.append(out_path/f"flownet_viz_gray_{n_count}.png")
+            if opt.write: wandb.log({"viz": [wandb.Image(str(img)) for img in output_imgs]})
 
             if name == "wheel":
 
@@ -239,18 +262,27 @@ if __name__ == "__main__":
     if opt.write:
         os.makedirs(opt.save_path, exist_ok=True)
 
-    # setup wandb run
-    run = wandb.init(
-    # Set the project where this run will be logged
-    project="SpatialTransformer",
-    # name of the experiment
-    name=opt.name,
-    # notes
-    notes=opt.notes,
-    # Track hyperparameters and run metadata
-    config=opt,
-    # flag to resume
-    resume=opt.resume)
+    train_tag = []
+    if opt.train:
+        train_tag.append("train")
+    if opt.eval:
+        train_tag.append("eval")
+    
+    if opt.write:
+        # setup wandb run
+        run = wandb.init(
+        # Set the project where this run will be logged
+        project="SpatialTransformer",
+        # name of the experiment
+        name=opt.name,
+        # notes
+        notes=opt.notes,
+        # Track hyperparameters and run metadata
+        config=opt,
+        # flag to resume
+        resume=opt.resume,
+        # add tags
+        tags=train_tag)
 
     setup_seed(0)
     save_files(opt)
@@ -271,7 +303,7 @@ if __name__ == "__main__":
         print(f"Finish training")
     if opt.eval:
         print(f"Begin evaluation")
-        val(val_ouchi_DLoader, "ouchi", -1)
+        val(opt,net, val_ouchi_DLoader, "ouchi")
         print(f"Finish evaluation")
         exit(0)
     
