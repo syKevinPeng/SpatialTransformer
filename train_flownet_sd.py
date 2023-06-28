@@ -1,4 +1,5 @@
 import argparse
+from sympy import Q
 import torch
 import warnings
 import numpy as np
@@ -8,6 +9,7 @@ import wandb
 
 from torch.utils.tensorboard import SummaryWriter
 from SpatialTransformer import SpatialTransformer
+import torchvision
 from network.FlowNetSD import FlowNetSD
 from network.flow import CNN
 from utils.flow_utils import vis_flow
@@ -16,8 +18,8 @@ from torch.optim.lr_scheduler import MultiStepLR
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from pathlib import Path
-
-from dataset import Train_Dataset, ChairsSDHom
+import PIL
+from dataset import Train_Dataset, ChairsSDHom, Siyuan_Ouchi_Dataset
 from loss import MultiScale, pme_loss, total_loss
 import torch.nn.functional as F
 from matplotlib import pyplot as plt
@@ -42,6 +44,7 @@ parser.add_argument("--gpu_idx", type=int, default=1)
 parser.add_argument("--debug", type=int, default=False)
 parser.add_argument("--eval", action="store_true", help="do evaluation")
 parser.add_argument("--train", action="store_true", help="do training")
+parser.add_argument('--test', action='store_true', help='do testing')
 parser.add_argument("--exp_weight", default=0.99)
 parser.add_argument("-w", "--write", action="store_true")
 parser.add_argument("--resume", action="store_true")
@@ -80,14 +83,21 @@ def save_files(opt):
 def load_dataset(opt):
     train_dset = ChairsSDHom(
         is_cropped=0, root=opt.dataset_path, dstype="train", to_gray=opt.to_gray, debug=debug)
-    val_ouchi_dset = Train_Dataset(dir="./data/Ouchi_FLOW", debug=None)
+    val_dest = ChairsSDHom(
+        is_cropped=0, root=opt.dataset_path, dstype="test", to_gray=opt.to_gray, debug=debug
+    )
+    test_ouchi_dset = Train_Dataset(dir="./data/Ouchi_FLOW", debug=None)
+    #val_ouchi_dset = Siyuan_Ouchi_Dataset(dir="/home/siyuan/research/dataset/ouchi_dataset", debug=None)
     train_DLoader = DataLoader(
         train_dset, batch_size=opt.bat_size, shuffle=True, num_workers=0, pin_memory=0
     )
-    val_ouchi_DLoader = DataLoader(
-        val_ouchi_dset, batch_size=1, shuffle=False, num_workers=0, pin_memory=0
+    val_Dloader = DataLoader(
+        val_dest, batch_size=1, shuffle=False, num_workers=0, pin_memory=0
     )
-    return train_DLoader, val_ouchi_DLoader
+    test_ouchi_DLoader = DataLoader(
+        test_ouchi_dset, batch_size=1, shuffle=False, num_workers=0, pin_memory=0
+    )
+    return train_DLoader, val_Dloader, test_ouchi_DLoader
 
 def load_network(opt):
     if opt.network == "flownet":
@@ -163,8 +173,40 @@ def train(opt, net, train_DLoader):
                 # save to wandb
                 wandb.save(os.path.join(opt.save_path, "net_epoch_%s.pth" % start_epoch))
 
+def validation(opt, net, val_DLoader):
+    start_epoch = 0
+    flownet_loss = MultiScale(startScale=1, numScales=7, norm="L2")
+    bat_num = len(val_DLoader)
+    net.eval()
+    # load pytorch model
+    if opt.load_path:
+        ckp = torch.load(opt.load_path)
+        net.load_state_dict(ckp["net"])
+        print(f"load from {opt.load_path}")
+    else:
+        raise Exception("load path not specified")
+    sum_epe = []
+    for epoch_num, bat in enumerate(tqdm(val_DLoader)):
+        with torch.no_grad():
+            bat_im1, bat_im2, bat_gt_flow = (
+                    bat["im1"].cuda(),
+                    bat["im2"].cuda(),
+                    bat["flow"].cuda(),
+                )
 
-def val(opt, net, val_DLoader, name):
+            bat_pred_flow = net(torch.cat((bat_im1, bat_im2), dim=1))
+            bat_gt_flow = bat_gt_flow.cpu().numpy().squeeze(0).transpose(1, 2, 0)
+            bat_pred_flow = bat_pred_flow.cpu().numpy().squeeze(0).transpose(1, 2, 0)
+            squared_distance = np.sum((bat_pred_flow - bat_gt_flow) ** 2, axis=2)
+            epe = np.sqrt(squared_distance).flatten()
+            sum_epe += epe.tolist()
+    avg_epe = np.mean(sum_epe)
+    if opt.write:
+        wandb.log({"val/avg_epe": avg_epe})
+
+
+
+def test_on_ouchi(opt, net, val_DLoader, name):
     net.eval()
     # load pytorch model
     if opt.load_path:
@@ -182,40 +224,36 @@ def val(opt, net, val_DLoader, name):
             scale = 5
             im1, im2, gt_flow = bat["im1"].cuda(), bat["im2"].cuda(), bat["flow"].cuda()
             if name == "ouchi":
-                # pad images
-                im1 = F.pad(im1, (0, 0, 11, 12))[:, :, :, 39:-38]
-                im2 = F.pad(im2, (0, 0, 11, 12))[:, :, :, 39:-38]
-                
+                img_transform = torchvision.transforms.Compose(
+                [torchvision.transforms.Resize((256, 256), PIL.Image.NEAREST)]
+                )
+                im1 = img_transform(im1)
+                im2 = img_transform(im2)
+                gt_flow = img_transform(gt_flow)
+
+
                 out_path = Path(opt.save_path) / "viz_result"
                 out_path.mkdir(parents=True, exist_ok=True)
                 pred_flow = net(torch.cat((im1, im2), dim=1))
+
                 # remove redundent first channel and swap channels to w, h, c
                 pred_flow = pred_flow.cpu().squeeze(0).permute(1, 2, 0)
-                # also get the image with padded border
                 img1 = im1.cpu().squeeze(0).permute(1, 2, 0)
-
-                # pad flow
-                gt_flow = F.pad(gt_flow, (0, 0, 11, 12))[:, :, :, 39:-38]
-                # swap axis to w, h, c
                 gt_flow = gt_flow.cpu().squeeze(0).permute(1, 2, 0)
-                # # resize to output img size 
-                # print(pred_flow.shape, gt_flow.shape)
-                # exit()
-                # gt_flow = F.interpolate(gt_flow, size=pred_flow.shape[:2], mode="nearest").squeeze(0)
                 if pred_flow.shape[:2] != img1.shape[:2]:
                     raise ValueError(
                         f"pred_flow {pred_flow.shape[:2]} and image {img1.shape[:2]} should"
                         " have same shape"
                     )
-                w, h = pred_flow.shape[:2]
+                h, w = pred_flow.shape[:2]
                 # visulize the flow
                 x, y = np.meshgrid(np.arange(w), np.arange(h))
                 # Get the x and y components of the flow vectors
-                pred_u = pred_flow[:, :, 0]
-                pred_v = pred_flow[:, :, 1]
+                pred_v = pred_flow[:, :, 0] 
+                pred_u = pred_flow[:, :, 1]
 
-                gt_u = gt_flow[:, :, 0]
-                gt_v = gt_flow[:, :, 1]
+                gt_v = gt_flow[:, :, 0]
+                gt_u = gt_flow[:, :, 1]
 
                 # Set the arrow spacing and scale
                 spacing = 10
@@ -223,8 +261,8 @@ def val(opt, net, val_DLoader, name):
                 # Create a new image with the original image and flow arrows
                 fig, ax = plt.subplots()
                 ax.imshow(img1)
-                ax.quiver(x[::spacing, ::spacing], y[::spacing, ::spacing], -pred_u[::spacing, ::spacing], pred_v[::spacing, ::spacing], scale=scale, color='r')
-                ax.quiver(x[::spacing, ::spacing], y[::spacing, ::spacing], -gt_u[::spacing, ::spacing], gt_v[::spacing, ::spacing], scale=scale, color='b')
+                ax.quiver(x[::spacing, ::spacing], y[::spacing, ::spacing], pred_u[::spacing, ::spacing], -pred_v[::spacing, ::spacing], scale=scale, color='r')
+                ax.quiver(x[::spacing, ::spacing], y[::spacing, ::spacing], gt_u[::spacing, ::spacing], -gt_v[::spacing, ::spacing], scale=scale, color='b')
                 plt.savefig(out_path/f"flownet_viz_gray_{n_count}.png", dpi=300)
                 output_imgs.append(out_path/f"flownet_viz_gray_{n_count}.png")
             if opt.write: wandb.log({"viz": [wandb.Image(str(img)) for img in output_imgs]})
@@ -267,6 +305,8 @@ if __name__ == "__main__":
         train_tag.append("train")
     if opt.eval:
         train_tag.append("eval")
+    if opt.test:
+        train_tag.append("test")
     
     if opt.write:
         # setup wandb run
@@ -293,7 +333,7 @@ if __name__ == "__main__":
         debug = None
 
     # get dataloader
-    train_DLoader, val_ouchi_DLoader = load_dataset(opt)
+    train_DLoader, val_Dloader, test_ouchi_DLoader = load_dataset(opt)
     # get network
     net = load_network(opt)
 
@@ -303,9 +343,13 @@ if __name__ == "__main__":
         print(f"Finish training")
     if opt.eval:
         print(f"Begin evaluation")
-        val(opt,net, val_ouchi_DLoader, "ouchi")
+        validation(opt, net, val_Dloader)
         print(f"Finish evaluation")
-        exit(0)
+    if opt.test:
+        print(f"Begin testing/visulization")
+        test_on_ouchi(opt,net, test_ouchi_DLoader, "ouchi")
+        print(f"Finish testing/visulization")
+
     
 
     

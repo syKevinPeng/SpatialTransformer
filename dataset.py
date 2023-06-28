@@ -15,6 +15,7 @@ from SpatialTransformer import SpatialTransformer
 from utils import frame_utils
 from utils.flow_utils import vis_flow
 from utils.imtools import rgb2gray, imshow
+import cv2
 
 
 class Train_Dataset(Dataset):
@@ -42,6 +43,34 @@ class Train_Dataset(Dataset):
 
         dic = {'im1': im1, 'im2': im2, 'flow':flow}
         return dic
+    
+class Siyuan_Ouchi_Dataset(Dataset):
+    def __init__(self, dir, debug = None) -> None:
+        self.dir = dir
+        self.debug = debug
+        self.data_im1 = sorted(glob(os.path.join(dir, "image_1", '*_10.png')))
+        self.data_im2 = sorted(glob(os.path.join(dir, "image_1", '*_11.png')))
+        self.data_flow = sorted(glob(os.path.join(dir, "flow_noc", '*.png')))
+        if len(self.data_im1) != len(self.data_im2):
+            raise Exception("two set of images don't have same length")
+        if len(self.data_flow) == 0:
+            raise Exception("no flow found")
+    
+    def  __len__(self):
+        if self.debug is not None: 
+            self.data_im1 = self.data_im1[0:self.debug]
+            self.data_im2 = self.data_im2[0:self.debug]
+        img_num = len(self.data_im1)
+        return img_num    
+    
+    def __getitem__(self, i):
+        flow = readFlowKITTI(self.data_flow[i])[0]
+        img1 = torch.from_numpy(imread(self.data_im1[i])).permute(2, 0, 1)[0,::]
+        img2 = torch.from_numpy(imread(self.data_im2[i])).permute(2, 0, 1)[0,::]
+        flow = torch.from_numpy(flow).permute(2, 0, 1)
+        result_dict = {'im1': img1.unsqueeze(0), 'im2': img2.unsqueeze(0), 'flow': flow}
+        return result_dict
+
 
 class StaticRandomCrop(object):
     def __init__(self, image_size, crop_size):
@@ -141,4 +170,11 @@ class ChairsSDHom(Dataset):
       else:
           return self.size
 
+# Convert the optical flow from uint16 to float32 and normalize to [-1, 1]
+def readFlowKITTI(filename):
+    flow = cv2.imread(str(filename), cv2.IMREAD_ANYDEPTH|cv2.IMREAD_COLOR)
+    flow = flow[:,:,::-1].astype(np.float32)
+    flow, valid = flow[:, :, :2], flow[:, :, 2]
+    flow = (flow - 2**15) / 64.0
+    return flow, valid
 

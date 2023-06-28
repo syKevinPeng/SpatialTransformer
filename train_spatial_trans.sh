@@ -19,9 +19,12 @@ python3 train_flownet_sd.py \
 --to_gray False \
 --network flownet \
 --dataset_path /home/siyuan/research/dataset/ChairsSDHom/data \
---save_path /home/siyuan/research/SpatialTransformer/my_results/biased_flow_rgb_whole/viz \
---name "Viz RGB whole" \
---notes "Vizsulization of the RGB image on the whole dataset" \
---load_path /home/siyuan/research/SpatialTransformer/my_results/biased_flow_rgb_whole/net_epoch_999.pth \
---write
+--save_path /home/siyuan/research/SpatialTransformer/my_results/biased_flow_gray_whole/ \
+--name "Eval gray  whole" \
+--notes "Evalation of the model's performance on validation set of ChairSD" \
+--load_path /home/siyuan/research/SpatialTransformer/my_results/biased_flow_gray_whole/net_epoch_999.pth 
 
+#/home/siyuan/research/SpatialTransformer/my_results/biased_flow_gray_1000/exp1_gray_1000/net_epoch_970.pth
+# /home/siyuan/research/SpatialTransformer/my_results/biased_flow_gray_whole/net_epoch_999.pth
+# /home/siyuan/research/SpatialTransformer/my_results/biased_flow_rgb_1000/exp2_RGB_1000/net_epoch_1000.pth
+# /home/siyuan/research/SpatialTransformer/my_results/biased_flow_rgb_whole/net_epoch_999.pth
