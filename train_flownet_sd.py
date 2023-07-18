@@ -20,7 +20,7 @@ from tqdm import tqdm
 from pathlib import Path
 import PIL
 from dataset import Train_Dataset, ChairsSDHom, Siyuan_Ouchi_Dataset
-from loss import MultiScale, pme_loss, total_loss
+from loss import MultiScale, pme_loss, total_loss, unsup_loss
 import torch.nn.functional as F
 from matplotlib import pyplot as plt
 
@@ -97,6 +97,7 @@ def load_dataset(opt):
     test_ouchi_DLoader = DataLoader(
         test_ouchi_dset, batch_size=1, shuffle=False, num_workers=0, pin_memory=0
     )
+    print(f"train set size: {len(train_dset)}")
     return train_DLoader, val_Dloader, test_ouchi_DLoader
 
 def load_network(opt):
@@ -123,9 +124,6 @@ def train(opt, net, train_DLoader):
         start_epoch = ckp["epoch"]
         print(f"load from {resume_dir} at epoch {start_epoch}")
 
-    flownet_loss = MultiScale(startScale=1, numScales=7, norm="L2")
-    cnn_loss = total_loss
-
     print(f"Begin training")
     with tqdm(total=opt.epoch - start_epoch, ncols=100, position=0, leave=True) as t:
         for start_epoch in range(start_epoch, opt.epoch):
@@ -144,16 +142,15 @@ def train(opt, net, train_DLoader):
 
                 bat_pred_flow = net(torch.cat((bat_im1, bat_im2), dim=1))
                 if opt.network == "flownet":
+                    flownet_loss = MultiScale(startScale=1, numScales=7, norm="L2")
                     loss, list = flownet_loss(bat_im1, bat_im2, bat_pred_flow, bat_gt_flow)
                 elif opt.network == "cnn":
-                    loss, list = cnn_loss(bat_im1, bat_im2, bat_pred_flow, bat_gt_flow, verbose=True)
+                    loss = unsup_loss(bat_im1, bat_im2, bat_pred_flow, bat_gt_flow)
                 loss.backward()
                 optimizer.step()
 
                 iters = start_epoch * bat_num + n_count
                 if opt.write:
-                    # for name in list.keys():
-                    #     writer.add_scalar('Train/%s'%name, list[name].cpu().detach().numpy(),iters)
                     wandb.log({"train/loss": loss.cpu().detach().numpy(), 
                                "epoch": start_epoch})
 

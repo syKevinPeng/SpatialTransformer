@@ -75,5 +75,9 @@ class MultiScale(nn.Module):
             # lossvalue += self.loss(output, target)
             lossvalue = pme_loss(im1, output[0], im2)
             return  [lossvalue, epevalue]
+        
+def unsup_loss(im1, im2, output, target):
+    # Brightness constancy loss + gradient smooth loss
+    return pme_loss(im1, output, im2, norm = 'L1') + gradient_loss(output, smooth_coef = 0.01, penalty='L2')
 
 
