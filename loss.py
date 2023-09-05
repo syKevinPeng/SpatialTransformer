@@ -69,7 +69,8 @@ class MultiScale(nn.Module):
             pmelossvalue = pme_loss(im1, output[0], im2, norm = 'L1')
             gdlossvalue = gradient_loss(output[0], smooth_coef = 0.01, penalty='L2')
             lossvalue = pmelossvalue + gdlossvalue
-            return [lossvalue, epevalue]
+            # return [lossvalue, epevalue]
+            return lossvalue
         else:
             epevalue += EPE(output, target)
             # lossvalue += self.loss(output, target)
@@ -78,6 +79,18 @@ class MultiScale(nn.Module):
         
 def unsup_loss(im1, im2, output, target):
     # Brightness constancy loss + gradient smooth loss
-    return pme_loss(im1, output, im2, norm = 'L1') + gradient_loss(output, smooth_coef = 0.01, penalty='L2')
+    # Warp the second image to the first image frame using the estimated optical flow  
+    
+    # take the first flow due to multi-scale
+    # flow = output[0]
+    flow= output
+    grid = torch.stack([flow[:, 0] / ((im1.shape[3] - 1.0) / 2.0) - 1.0, flow[:, 1] / ((im1.shape[2] - 1.0) / 2.0) - 1.0], dim=3)  
+    warped_im2 = F.grid_sample(im2, grid, mode='bilinear', padding_mode='border')  
+  
+    # Compute the brightness consistency loss  
+    brightness_loss = F.l1_loss(warped_im2, im1)
+    # Compute the gradient smoothness loss
+    smooth_loss = gradient_loss(flow, smooth_coef = 0.01, penalty='L2')  
+    return brightness_loss + smooth_loss
 
 

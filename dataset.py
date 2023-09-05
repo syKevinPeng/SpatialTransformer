@@ -10,7 +10,7 @@ import numpy as np
 import torch
 from scipy.io import loadmat
 from torch.utils.data import Dataset
-
+import torchvision.transforms as transforms
 from SpatialTransformer import SpatialTransformer
 from utils import frame_utils
 from utils.flow_utils import vis_flow
@@ -132,35 +132,33 @@ class ChairsSDHom(Dataset):
     img2 = frame_utils.read_gen(self.image_list[index][1])
 
     flow = frame_utils.read_gen(self.flow_list[index])
-    flow = flow[::-1,:,:]
-    flow = np.flipud(flow)
-    # img = vis_flow(flow)
-    # imageio.imsave(os.path.join('tmp' , 'flow.png'), img)
-    # imshow(img1, 'im1')
-    # imshow(img2, 'im2')
-
-
-    images = [img1, img2]
-    image_size = img1.shape[:2]
-    if self.is_cropped:
-        cropper = StaticRandomCrop(image_size, self.crop_size)
-    else:
-        cropper = StaticCenterCrop(image_size, self.render_size)
-    images = list(map(cropper, images))
-    flow = cropper(flow)
-
+    flow = flow[::-1,:,:].copy()
+    preprocess_img = transforms.Compose([
+        transforms.ToPILImage(),
+        transforms.CenterCrop(self.render_size),
+        transforms.ToTensor()
+    ])
+    preprocess_img_gray = transforms.Compose([
+        transforms.ToPILImage(),
+        transforms.CenterCrop(self.render_size),
+        transforms.Grayscale(num_output_channels=3),
+        transforms.ToTensor()
+    ])
+    preprocess_flow = transforms.Compose([
+        transforms.CenterCrop(self.render_size)
+    ])
+    # images = np.array([img1, img2]).transpose(3,0,1,2)
+    
     if self.to_gray:
-        img1 = rgb2gray(images[0])
-        img2 = rgb2gray(images[1])
-
-    flow = flow.transpose(2,0,1)
-
-
-    im1 = torch.from_numpy(img1).unsqueeze(0)
-    im2 = torch.from_numpy(img2).unsqueeze(0)
-    flow = torch.from_numpy(flow.copy()).squeeze()
-
-    dic = {'im1': im1.to(torch.float32), 'im2': im2.to(torch.float32), 'flow': flow.to(torch.float16)}
+        img1 = preprocess_img_gray(img1)
+        img2 = preprocess_img_gray(img2)
+    
+    flow = torch.tensor(flow.transpose(2,0,1))
+    flow = preprocess_flow(flow)
+    img1 = preprocess_img(img1)
+    img2 = preprocess_img(img2)
+    # img shape: (3, 256, 256)
+    dic = {'im1': img1.to(torch.float32), 'im2': img2.to(torch.float32), 'flow': flow.to(torch.float16)}
     return dic
 
 
@@ -169,6 +167,65 @@ class ChairsSDHom(Dataset):
           return self.debug
       else:
           return self.size
+
+# class ChairsSDHom(Dataset):
+#   def __init__(self,crop_size=(256,256), render_size=(256,256), is_cropped = False, to_gray = 1,
+#                root = '/path/to/chairssdhom/data', dstype = 'train', debug=None):
+#     self.is_cropped = is_cropped
+#     self.crop_size = crop_size
+#     self.render_size = render_size
+
+#     image1 = sorted( glob( join(root, dstype, 't0/*.png') ) )
+#     image2 = sorted( glob( join(root, dstype, 't1/*.png') ) )
+#     self.flow_list = sorted( glob( join(root, dstype, 'flow/*.pfm') ) )
+#     assert (len(image1) == len(self.flow_list))
+
+#     self.image_list = []
+#     for i in range(len(self.flow_list)):
+#         im1 = image1[i]
+#         im2 = image2[i]
+#         self.image_list += [ [ im1, im2 ] ]
+
+#     assert len(self.image_list) == len(self.flow_list)
+
+#     self.size = len(self.image_list)
+
+#     self.frame_size = frame_utils.read_gen(self.image_list[0][0]).shape
+
+#     if (self.render_size[0] < 0) or (self.render_size[1] < 0) or (self.frame_size[0]%64) or (self.frame_size[1]%64):
+#         self.render_size[0] = ( (self.frame_size[0])//64 ) * 64
+#         self.render_size[1] = ( (self.frame_size[1])//64 ) * 64
+
+
+#   def __getitem__(self, index):
+#     index = index % self.size
+
+#     img1 = frame_utils.read_gen(self.image_list[index][0])
+#     img2 = frame_utils.read_gen(self.image_list[index][1])
+
+#     flow = frame_utils.read_gen(self.flow_list[index])
+#     flow = flow[::-1,:,:]
+
+#     images = [img1, img2]
+#     image_size = img1.shape[:2]
+#     if self.is_cropped:
+#         cropper = StaticRandomCrop(image_size, self.crop_size)
+#     else:
+#         cropper = StaticCenterCrop(image_size, self.render_size)
+#     images = list(map(cropper, images))
+#     flow = cropper(flow)
+
+
+#     images = np.array(images).transpose(3,0,1,2)
+#     flow = flow.transpose(2,0,1)
+
+#     images = torch.from_numpy(images.astype(np.float32))
+#     flow = torch.from_numpy(flow.astype(np.float32))
+#     print(f'dataloader image shape: {images.shape}')
+#     return [images], [flow]
+
+#   def __len__(self):
+#     return self.size 
 
 # Convert the optical flow from uint16 to float32 and normalize to [-1, 1]
 def readFlowKITTI(filename):

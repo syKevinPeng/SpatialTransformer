@@ -12,16 +12,16 @@ from skimage.transform import EuclideanTransform
 from SpatialTransformer import SpatialTransformer
 
 
-name = 'MovSin_v2'
-data_dir = './data/' + 'MovSin' + '/*.png'
+name = 'small_ouchi'
+data_dir = os.path.join("./data","Ouchi","small_ouchi.png")
 data = sorted(glob(data_dir))
-data_num = len(data)
+data_num = 1
 save_data_dir = './data/'+ name +'_FLOW/'
 os.makedirs(save_data_dir,exist_ok=True)
 
-def produce_uniform_flow(im1):
-    theta = np.random.uniform(low=0,high=360/180 * np.pi)
-    magnitude = np.random.uniform(low=1, high=3)
+def produce_uniform_flow(im1, magnitude = 1):
+    # theta = np.random.uniform(low=0,high=360/180 * np.pi)
+    theta = -45/180 * np.pi
     x = np.cos(theta) * magnitude
     y = np.sin(theta) * magnitude
 
@@ -45,10 +45,9 @@ def produce_uniform_flow(im1):
 
     return im2, flow
 
-def produce_zoom_flow(im1):
+def produce_zoom_flow(im1, magnitude = 10):
     center = [im1.shape[0] // 2,im1.shape[1] // 2]
     radius = [0,130]
-    magnitude = 10
 
     im1 = torch.from_numpy(im1.astype(np.float32)).cuda()
     im1 = im1.unsqueeze(0).unsqueeze(0)
@@ -61,7 +60,7 @@ def produce_zoom_flow(im1):
             ii = i - center[0]
             jj = j - center[1]
             if radius[0]**2 <= ii**2 + jj**2 < radius[1]**2:
-                r = np.sqrt(ii**2 + jj**2).astype(np.int) / center[0] * magnitude
+                r = np.sqrt(ii**2 + jj**2).astype(int) / center[0] * magnitude
                 if ii != 0:
                     theta = np.arctan(np.abs(jj) / np.abs(ii))
                 elif ii == 0:
@@ -80,17 +79,17 @@ def produce_zoom_flow(im1):
 
 
 for i in range(data_num):
-    if name == 'Ouchi':
-        im1 = imread(os.path.join(data[0]), 0)
-        im1 = rgb2gray(im1)
-    else:
-        im1 = imread(os.path.join(data[i]),0)
+    # if name == 'Ouchi':
+    im1 = imread(os.path.join(data[0]), 0)
+    im1 = rgb2gray(im1)
+    # else:
+    #     im1 = imread(os.path.join(data[i]),0)
 
     if np.max(im1) > 2:
         im1 = im1 / 255.0
 
-    im2, flow = produce_uniform_flow(im1)
-
+    im2, flow = produce_uniform_flow(im1, magnitude = 5)
+    # im2, flow = produce_zoom_flow(im1, magnitude = 5)
     imshow(im1, str='im1_%d'%i, dir='./data/'+ name +'_FLOW/')
     imshow(im2, str='im2_%d'%i, dir='./data/'+ name +'_FLOW/')
     savemat("./data/"+ name + "_FLOW/mat_%d.mat"%i, {'flow':flow})

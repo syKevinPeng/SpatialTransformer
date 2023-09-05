@@ -13,7 +13,7 @@ class FlowNetSD(nn.Module):
         super(FlowNetSD,self).__init__()
 
         self.batchNorm = batchNorm
-        self.conv0   = conv(self.batchNorm,  2,   64)
+        self.conv0   = conv(self.batchNorm,  6,   64)
         self.conv1   = conv(self.batchNorm,  64,   64, stride=2)
         self.conv1_1 = conv(self.batchNorm,  64,   128)
         self.conv2   = conv(self.batchNorm,  128,  128, stride=2)
@@ -124,5 +124,6 @@ class FlowNetSD(nn.Module):
             return flow0,flow1,flow2,flow3,flow4,flow5,flow6
         else:
             return flow0
+        
 
 

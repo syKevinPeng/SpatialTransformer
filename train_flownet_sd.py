@@ -12,6 +12,7 @@ from SpatialTransformer import SpatialTransformer
 import torchvision
 from network.FlowNetSD import FlowNetSD
 from network.flow import CNN
+from network.pwcnet import PWCDCNet
 from utils.flow_utils import vis_flow
 from utils.imtools import imshow, vfshown
 from torch.optim.lr_scheduler import MultiStepLR
@@ -23,6 +24,7 @@ from dataset import Train_Dataset, ChairsSDHom, Siyuan_Ouchi_Dataset
 from loss import MultiScale, pme_loss, total_loss, unsup_loss
 import torch.nn.functional as F
 from matplotlib import pyplot as plt
+from torchsummary import summary
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
@@ -52,7 +54,8 @@ parser.add_argument(
     f"--dataset_path", type=str, default="/mnt/e/Downloads/ChairsSDHom/data"
 )
 parser.add_argument("--network", type=str, default="flownet")
-parser.add_argument("--to_gray", type=bool, default=True)
+parser.add_argument("--loss", type=str, default="multi_scale")
+parser.add_argument("--to_gray", action="store_true")
 parser.add_argument('--name', type=str, default='flownet-exp3')    
 parser.add_argument("--notes", type=str, default="Whole dataset, rgb images")
 parser.add_argument("--load_path", type=str, default=None)
@@ -86,7 +89,12 @@ def load_dataset(opt):
     val_dest = ChairsSDHom(
         is_cropped=0, root=opt.dataset_path, dstype="test", to_gray=opt.to_gray, debug=debug
     )
-    test_ouchi_dset = Train_Dataset(dir="./data/Ouchi_FLOW", debug=None)
+    test_ouchi_dset = Train_Dataset(dir="data/diag_ouchi_FLOW", debug=None)
+    test_wheel_dset = Train_Dataset(dir="./data/outer_wheel_FLOW", debug = None)
+    if len(test_ouchi_dset) == 0:
+        raise Exception("no ouchi data found")
+    if len(test_wheel_dset) == 0:
+        raise Exception("no wheel data found")
     #val_ouchi_dset = Siyuan_Ouchi_Dataset(dir="/home/siyuan/research/dataset/ouchi_dataset", debug=None)
     train_DLoader = DataLoader(
         train_dset, batch_size=opt.bat_size, shuffle=True, num_workers=0, pin_memory=0
@@ -97,25 +105,40 @@ def load_dataset(opt):
     test_ouchi_DLoader = DataLoader(
         test_ouchi_dset, batch_size=1, shuffle=False, num_workers=0, pin_memory=0
     )
+    test_wheel_DLoader = DataLoader(
+        dataset=test_wheel_dset, batch_size=1, shuffle=False, num_workers=0, pin_memory=0
+    )
     print(f"train set size: {len(train_dset)}")
-    return train_DLoader, val_Dloader, test_ouchi_DLoader
+    return train_DLoader, val_Dloader, test_ouchi_DLoader, test_wheel_DLoader
 
 def load_network(opt):
     if opt.network == "flownet":
         net = FlowNetSD().cuda()
     elif opt.network == "cnn":
         net = CNN(depth=10).cuda()
+    elif opt.network == "pwc":
+        # md is maximum displacement for correlation
+        net = PWCDCNet(md=4).cuda()
     else:
         raise Exception("network not supported")
     print(f'Using {opt.network}')
     return net
+
+def load_loss(opt):
+    if opt.loss == "multi_scale":
+        return  MultiScale(startScale=1, numScales=7, norm="L2")
+    elif opt.loss == "unsup_loss":
+        return unsup_loss
+    else:
+        raise Exception(f"loss {opt.loss} not supported. It has to be one of multi_scale, unsup_loss")
+    
 
 def train(opt, net, train_DLoader):
     optimizer = torch.optim.Adam(net.parameters(), lr=opt.LR)
     scheduler = MultiStepLR(optimizer, milestones=[700, 900, 1300], gamma=0.5)  # learning rates
 
     start_epoch = 0
-    if wandb.run.resumed:
+    if opt.resume and wandb.run.resumed:
         resume_dir = opt.load_path
         ckp = torch.load(resume_dir)
         net.load_state_dict(ckp["net"])
@@ -133,21 +156,35 @@ def train(opt, net, train_DLoader):
             for n_count, bat in enumerate(train_DLoader):
                 net.train()
                 optimizer.zero_grad()
+                # swtich from rgb to bgr only for pwcnet
+                if opt.network == "pwc":
+                    bat_img1 = bat["im1"].cuda()
+                    bat_img2 = bat["im2"].cuda()
+                    input_imgs = torch.cat((bat_img1, bat_img2), dim=1)
+                    bat_gt_flow = bat["flow"].cuda()
+                    bat_pred_flow = net(input_imgs)
+                    # you have to scale the flow back to original size
 
-                bat_im1, bat_im2, bat_gt_flow = (
-                    bat["im1"].cuda(),
-                    bat["im2"].cuda(),
-                    bat["flow"].cuda(),
-                )
+                    bat_pred_flow = F.interpolate(bat_pred_flow[0], size=(256, 256), mode='bilinear', align_corners=False)
+                    loss = load_loss(opt)(bat_img1, bat_img2, bat_pred_flow, bat_gt_flow)
+                    loss.backward()
+                    optimizer.step()
 
-                bat_pred_flow = net(torch.cat((bat_im1, bat_im2), dim=1))
+                    
                 if opt.network == "flownet":
-                    flownet_loss = MultiScale(startScale=1, numScales=7, norm="L2")
-                    loss, list = flownet_loss(bat_im1, bat_im2, bat_pred_flow, bat_gt_flow)
-                elif opt.network == "cnn":
-                    loss = unsup_loss(bat_im1, bat_im2, bat_pred_flow, bat_gt_flow)
-                loss.backward()
-                optimizer.step()
+                    #(3, 2, 256, 256)=> we need to have input shape (channel, num_img, height, width)
+                    bat_img1 = bat["im1"].cuda()
+                    bat_img2 = bat["im2"].cuda()
+                    input_imgs = torch.cat((bat_img1, bat_img2), dim=1)
+                    # input_imgs size = (batch_size, 6, 256, 256)
+                
+                    bat_gt_flow = bat["flow"].cuda()
+
+                    # bat_pred_flow = net(torch.cat((bat_im1, bat_im2), dim=1))
+                    bat_pred_flow = net(input_imgs)
+                    loss = load_loss(opt)(bat_img1, bat_img2, bat_pred_flow, bat_gt_flow)
+                    loss.backward()
+                    optimizer.step()
 
                 iters = start_epoch * bat_num + n_count
                 if opt.write:
@@ -203,7 +240,7 @@ def validation(opt, net, val_DLoader):
 
 
 
-def test_on_ouchi(opt, net, val_DLoader, name):
+def prediction(opt, net, val_DLoader):
     net.eval()
     # load pytorch model
     if opt.load_path:
@@ -220,82 +257,80 @@ def test_on_ouchi(opt, net, val_DLoader, name):
             keep_scale = False
             scale = 5
             im1, im2, gt_flow = bat["im1"].cuda(), bat["im2"].cuda(), bat["flow"].cuda()
-            if name == "ouchi":
-                img_transform = torchvision.transforms.Compose(
-                [torchvision.transforms.Resize((256, 256), PIL.Image.NEAREST)]
+
+            img_transform = torchvision.transforms.Compose(
+            [torchvision.transforms.CenterCrop((256, 256))]
+            )
+            im1 = img_transform(im1)
+            im2 = img_transform(im2)
+            gt_flow = img_transform(gt_flow)
+
+
+            out_path = Path(opt.save_path) / "viz_result"
+            out_path.mkdir(parents=True, exist_ok=True)
+            pred_flow = net(torch.cat((im1, im2), dim=1))
+
+            # remove redundent first channel and swap channels to w, h, c
+            pred_flow = pred_flow.cpu().squeeze(0).permute(1, 2, 0)
+            img1 = im1.cpu().squeeze(0).permute(1, 2, 0)
+            gt_flow = gt_flow.cpu().squeeze(0).permute(1, 2, 0)
+            if pred_flow.shape[:2] != img1.shape[:2]:
+                raise ValueError(
+                    f"pred_flow {pred_flow.shape[:2]} and image {img1.shape[:2]} should"
+                    " have same shape"
                 )
-                im1 = img_transform(im1)
-                im2 = img_transform(im2)
-                gt_flow = img_transform(gt_flow)
+            h, w = pred_flow.shape[:2]
+            # visulize the flow
+            x, y = np.meshgrid(np.arange(w), np.arange(h))
+            # Get the x and y components of the flow vectors
+            pred_v = pred_flow[:, :, 0] 
+            pred_u = pred_flow[:, :, 1]
 
+            gt_v = gt_flow[:, :, 0]
+            gt_u = gt_flow[:, :, 1]
 
-                out_path = Path(opt.save_path) / "viz_result"
-                out_path.mkdir(parents=True, exist_ok=True)
-                pred_flow = net(torch.cat((im1, im2), dim=1))
-
-                # remove redundent first channel and swap channels to w, h, c
-                pred_flow = pred_flow.cpu().squeeze(0).permute(1, 2, 0)
-                img1 = im1.cpu().squeeze(0).permute(1, 2, 0)
-                gt_flow = gt_flow.cpu().squeeze(0).permute(1, 2, 0)
-                if pred_flow.shape[:2] != img1.shape[:2]:
-                    raise ValueError(
-                        f"pred_flow {pred_flow.shape[:2]} and image {img1.shape[:2]} should"
-                        " have same shape"
-                    )
-                h, w = pred_flow.shape[:2]
-                # visulize the flow
-                x, y = np.meshgrid(np.arange(w), np.arange(h))
-                # Get the x and y components of the flow vectors
-                pred_v = pred_flow[:, :, 0] 
-                pred_u = pred_flow[:, :, 1]
-
-                gt_v = gt_flow[:, :, 0]
-                gt_u = gt_flow[:, :, 1]
-
-                # Set the arrow spacing and scale
-                spacing = 10
-                scale = None
-                # Create a new image with the original image and flow arrows
-                fig, ax = plt.subplots()
-                ax.imshow(img1)
-                ax.quiver(x[::spacing, ::spacing], y[::spacing, ::spacing], pred_u[::spacing, ::spacing], -pred_v[::spacing, ::spacing], scale=scale, color='r')
-                ax.quiver(x[::spacing, ::spacing], y[::spacing, ::spacing], gt_u[::spacing, ::spacing], -gt_v[::spacing, ::spacing], scale=scale, color='b')
-                plt.savefig(out_path/f"flownet_viz_gray_{n_count}.png", dpi=300)
-                output_imgs.append(out_path/f"flownet_viz_gray_{n_count}.png")
+            # Set the arrow spacing and scale
+            spacing = 10
+            scale = None
+            # Create a new image with the original image and flow arrows
+            fig, ax = plt.subplots()
+            ax.imshow(img1)
+            ax.quiver(x[::spacing, ::spacing], y[::spacing, ::spacing], pred_u[::spacing, ::spacing], pred_v[::spacing, ::spacing], scale=scale, color='r')
+            ax.quiver(x[::spacing, ::spacing], y[::spacing, ::spacing], -gt_u[::spacing, ::spacing], gt_v[::spacing, ::spacing], scale=scale, color='b')
+            plt.savefig(out_path/f"viz_{n_count}.png", dpi=300)
+            output_imgs.append(out_path/f"viz_{n_count}.png")
             if opt.write: wandb.log({"viz": [wandb.Image(str(img)) for img in output_imgs]})
 
-            if name == "wheel":
+            # if name == "wheel":
 
-                def compute_gradient(img):
-                    import torch.nn.functional as F
+            #     def compute_gradient(img):
+            #         import torch.nn.functional as F
 
-                    gradx = img[..., 1:, :] - img[..., :-1, :]
-                    grady = img[..., 1:] - img[..., :-1]
-                    gradx = F.pad(gradx, (0, 0, 0, 1))
-                    grady = F.pad(grady, (0, 1, 0, 0))
-                    mag = torch.sqrt(gradx**2 + grady**2)
-                    return mag
+            #         gradx = img[..., 1:, :] - img[..., :-1, :]
+            #         grady = img[..., 1:] - img[..., :-1]
+            #         gradx = F.pad(gradx, (0, 0, 0, 1))
+            #         grady = F.pad(grady, (0, 1, 0, 0))
+            #         mag = torch.sqrt(gradx**2 + grady**2)
+            #         return mag
 
-                mag = compute_gradient(im1)
-                loc = (mag < 0.005).cpu().numpy()
+            #     mag = compute_gradient(im1)
+            #     loc = (mag < 0.005).cpu().numpy()
 
-                pred_flow[0, ...] = pred_flow[0, ...].cpu() * torch.from_numpy(~loc)
-                gt_flow[0, ...] = gt_flow[0, ...].cpu() * torch.from_numpy(~loc)
-                sample_rate = 5
-                keep_scale = True
-                scale = 15
+            #     pred_flow[0, ...] = pred_flow[0, ...].cpu() * torch.from_numpy(~loc)
+            #     gt_flow[0, ...] = gt_flow[0, ...].cpu() * torch.from_numpy(~loc)
+            #     sample_rate = 5
+            #     keep_scale = True
+            #     scale = 15
 
 
 if __name__ == "__main__":
     opt = parser.parse_args()
-
     torch.cuda.device(opt.gpu_idx)
     torch.backends.cudnn.enabled = True
     torch.backends.cudnn.benchmark = True
     dtype = torch.cuda.FloatTensor
 
-    if opt.write:
-        os.makedirs(opt.save_path, exist_ok=True)
+    os.makedirs(opt.save_path, exist_ok=True)
 
     train_tag = []
     if opt.train:
@@ -330,7 +365,7 @@ if __name__ == "__main__":
         debug = None
 
     # get dataloader
-    train_DLoader, val_Dloader, test_ouchi_DLoader = load_dataset(opt)
+    train_DLoader, val_Dloader, test_ouchi_DLoader, test_wheel_DLoader = load_dataset(opt)
     # get network
     net = load_network(opt)
 
@@ -344,7 +379,10 @@ if __name__ == "__main__":
         print(f"Finish evaluation")
     if opt.test:
         print(f"Begin testing/visulization")
-        test_on_ouchi(opt,net, test_ouchi_DLoader, "ouchi")
+        # prediction on ouchi data
+        # prediction(opt,net, test_ouchi_DLoader)
+        # prediction on wheel data
+        prediction(opt,net, test_wheel_DLoader)
         print(f"Finish testing/visulization")
 
     
