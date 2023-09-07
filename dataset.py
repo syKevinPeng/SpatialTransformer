@@ -19,15 +19,15 @@ import cv2
 
 
 class Train_Dataset(Dataset):
-    def __init__(self, dir, debug = None):
+    def __init__(self, dir, num_imgs = 0):
         self.dir = dir
-        self.debug = debug
+        self.num_imgs = num_imgs
 
         self.data_im1 = sorted(glob(os.path.join(dir, 'im1*.png')))
 
 
     def  __len__(self):
-        if self.debug is not None: self.data_im1 = self.data_im1[0:self.debug]
+        if self.num_imgs != 0: self.data_im1 = self.data_im1[0:self.num_imgs]
         img_num = len(self.data_im1)
         return img_num
 
@@ -45,9 +45,9 @@ class Train_Dataset(Dataset):
         return dic
     
 class Siyuan_Ouchi_Dataset(Dataset):
-    def __init__(self, dir, debug = None) -> None:
+    def __init__(self, dir, num_imgs = 0) -> None:
         self.dir = dir
-        self.debug = debug
+        self.num_imgs = num_imgs
         self.data_im1 = sorted(glob(os.path.join(dir, "image_1", '*_10.png')))
         self.data_im2 = sorted(glob(os.path.join(dir, "image_1", '*_11.png')))
         self.data_flow = sorted(glob(os.path.join(dir, "flow_noc", '*.png')))
@@ -57,9 +57,9 @@ class Siyuan_Ouchi_Dataset(Dataset):
             raise Exception("no flow found")
     
     def  __len__(self):
-        if self.debug is not None: 
-            self.data_im1 = self.data_im1[0:self.debug]
-            self.data_im2 = self.data_im2[0:self.debug]
+        if self.num_imgs != 0: 
+            self.data_im1 = self.data_im1[0:self.num_imgs]
+            self.data_im2 = self.data_im2[0:self.num_imgs]
         img_num = len(self.data_im1)
         return img_num    
     
@@ -91,11 +91,12 @@ class StaticCenterCrop(object):
 
 class ChairsSDHom(Dataset):
   def __init__(self, crop_size=(256,256), render_size=(256,256), is_cropped = False, to_gray = 1,
-               root = '/path/to/chairssdhom/data', dstype = 'train', debug=None):
+               root = '/path/to/chairssdhom/data', dstype = 'train', num_imgs=0):
     self.is_cropped = is_cropped
     self.crop_size = crop_size
     self.render_size = render_size
     self.to_gray = to_gray
+    self.num_imgs = num_imgs
 
     image1 = sorted( glob( join(root, dstype, 't0/*.png') ) )
     image2 = sorted( glob( join(root, dstype, 't1/*.png') ) )
@@ -119,10 +120,9 @@ class ChairsSDHom(Dataset):
         self.render_size[0] = ( (self.frame_size[0])//64 ) * 64
         self.render_size[1] = ( (self.frame_size[1])//64 ) * 64
 
-    self.debug = debug
-    if self.debug is not None:
-        self.image_list = self.image_list[0:self.debug]
-        self.flow_list  = self.flow_list[0:self.debug]
+    if self.num_imgs !=0:
+        self.image_list = self.image_list[0:self.num_imgs]
+        self.flow_list  = self.flow_list[0:self.num_imgs]
 
 
   def __getitem__(self, index):
@@ -163,69 +163,10 @@ class ChairsSDHom(Dataset):
 
 
   def __len__(self):
-      if self.debug is not None:
-          return self.debug
+      if self.num_imgs is not None:
+          return self.num_imgs
       else:
           return self.size
-
-# class ChairsSDHom(Dataset):
-#   def __init__(self,crop_size=(256,256), render_size=(256,256), is_cropped = False, to_gray = 1,
-#                root = '/path/to/chairssdhom/data', dstype = 'train', debug=None):
-#     self.is_cropped = is_cropped
-#     self.crop_size = crop_size
-#     self.render_size = render_size
-
-#     image1 = sorted( glob( join(root, dstype, 't0/*.png') ) )
-#     image2 = sorted( glob( join(root, dstype, 't1/*.png') ) )
-#     self.flow_list = sorted( glob( join(root, dstype, 'flow/*.pfm') ) )
-#     assert (len(image1) == len(self.flow_list))
-
-#     self.image_list = []
-#     for i in range(len(self.flow_list)):
-#         im1 = image1[i]
-#         im2 = image2[i]
-#         self.image_list += [ [ im1, im2 ] ]
-
-#     assert len(self.image_list) == len(self.flow_list)
-
-#     self.size = len(self.image_list)
-
-#     self.frame_size = frame_utils.read_gen(self.image_list[0][0]).shape
-
-#     if (self.render_size[0] < 0) or (self.render_size[1] < 0) or (self.frame_size[0]%64) or (self.frame_size[1]%64):
-#         self.render_size[0] = ( (self.frame_size[0])//64 ) * 64
-#         self.render_size[1] = ( (self.frame_size[1])//64 ) * 64
-
-
-#   def __getitem__(self, index):
-#     index = index % self.size
-
-#     img1 = frame_utils.read_gen(self.image_list[index][0])
-#     img2 = frame_utils.read_gen(self.image_list[index][1])
-
-#     flow = frame_utils.read_gen(self.flow_list[index])
-#     flow = flow[::-1,:,:]
-
-#     images = [img1, img2]
-#     image_size = img1.shape[:2]
-#     if self.is_cropped:
-#         cropper = StaticRandomCrop(image_size, self.crop_size)
-#     else:
-#         cropper = StaticCenterCrop(image_size, self.render_size)
-#     images = list(map(cropper, images))
-#     flow = cropper(flow)
-
-
-#     images = np.array(images).transpose(3,0,1,2)
-#     flow = flow.transpose(2,0,1)
-
-#     images = torch.from_numpy(images.astype(np.float32))
-#     flow = torch.from_numpy(flow.astype(np.float32))
-#     print(f'dataloader image shape: {images.shape}')
-#     return [images], [flow]
-
-#   def __len__(self):
-#     return self.size 
 
 # Convert the optical flow from uint16 to float32 and normalize to [-1, 1]
 def readFlowKITTI(filename):

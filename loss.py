@@ -51,15 +51,15 @@ def EPE(input_flow, target_flow):
 
 # Photometric Loss + Smoothness Loss
 class UnsupLoss(nn.Module):
+    def __init__(self):
+        super(UnsupLoss,self).__init__()
+
     def forward(self, im1, im2, output, target):
-    #     pmelossvalue = pme_loss(im1, output[0], im2, norm = 'L1')
-    #     gdlossvalue = gradient_loss(output[0], smooth_coef = 0.01, penalty='L2')
-    #     lossvalue = pmelossvalue + gdlossvalue
-    #     return lossvalue
         if type(output) is tuple:
             pmelossvalue = pme_loss(im1, output[0], im2, norm = 'L1')
             gdlossvalue = gradient_loss(output[0], smooth_coef = 0.01, penalty='L2')
             lossvalue = pmelossvalue + gdlossvalue
+            epevalue = EPE(output[0], target)
             return [lossvalue, epevalue]
         else:
             epevalue += EPE(output, target)

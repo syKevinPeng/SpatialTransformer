@@ -11,6 +11,7 @@ python3 main.py \
 --name "RGB Flownet 1000 images" \
 --notes "Flownet model (with no correlation) trained on ChairsSDHom dataset with only 1000 RGB images" \
 --num_img_to_train 1000 \
+--wandb_mode "disabled" # wandb model can be "online", "offline", "disabled"
 
 # for inference
 # python3 train_flownet_sd.py \

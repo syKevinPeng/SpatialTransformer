@@ -47,7 +47,6 @@ parser.add_argument("--eval", action="store_true", help="do evaluation")
 parser.add_argument("--train", action="store_true", help="do training")
 parser.add_argument('--test', action='store_true', help='do testing')
 parser.add_argument("--exp_weight", default=0.99)
-parser.add_argument("-w", "--write", action="store_true")
 parser.add_argument("--resume", action="store_true")
 parser.add_argument(
     f"--dataset_path", type=str, default="/mnt/e/Downloads/ChairsSDHom/data"
@@ -58,6 +57,7 @@ parser.add_argument("--to_gray", action="store_true")
 parser.add_argument('--name', type=str, default='flownet-exp3')    
 parser.add_argument("--notes", type=str, default="Whole dataset, rgb images")
 parser.add_argument("--load_path", type=str, default=None)
+parser.add_argument("--wandb_mode", type=str, default="offline", choices=["online", "offline", "disabled"])
 
 warnings.filterwarnings("ignore")
 
@@ -70,12 +70,12 @@ def setup_seed(seed):
 
 def load_dataset(opt):
     train_dset = ChairsSDHom(
-        is_cropped=0, root=opt.dataset_path, dstype="train", to_gray=opt.to_gray, debug=debug)
+        is_cropped=0, root=opt.dataset_path, dstype="train", to_gray=opt.to_gray, num_imgs=opt.num_img_to_train)
     val_dest = ChairsSDHom(
-        is_cropped=0, root=opt.dataset_path, dstype="test", to_gray=opt.to_gray, debug=debug
+        is_cropped=0, root=opt.dataset_path, dstype="test", to_gray=opt.to_gray, num_imgs=opt.num_img_to_train
     )
-    test_ouchi_dset = Train_Dataset(dir="data/small_ouchi_FLOW", debug=None)
-    test_wheel_dset = Train_Dataset(dir="./data/outer_wheel_FLOW", debug = None)
+    test_ouchi_dset = Train_Dataset(dir="data/small_ouchi_FLOW", num_imgs=opt.num_img_to_train)
+    test_wheel_dset = Train_Dataset(dir="./data/outer_wheel_FLOW", num_imgs = opt.num_img_to_train)
     if len(test_ouchi_dset) == 0:
         raise Exception("no ouchi data found")
     if len(test_wheel_dset) == 0:
@@ -172,13 +172,12 @@ def train(opt, net, train_DLoader):
 
                     # bat_pred_flow = net(torch.cat((bat_im1, bat_im2), dim=1))
                     bat_pred_flow = net(input_imgs)
-                    loss = load_loss(opt)(bat_img1, bat_img2, bat_pred_flow, bat_gt_flow)
+                    # loss return a list [loss value, epe value]
+                    [loss, epe_loss] = load_loss(opt)(bat_img1, bat_img2, bat_pred_flow, bat_gt_flow)
                     loss.backward()
                     optimizer.step()
-
-                if opt.write:
-                    wandb.log({"train/loss": loss.cpu().detach().numpy()[0], 
-                               "train/epe": loss.cpu().detach().numpy()[1], 
+                wandb.log({"train/loss": loss.cpu().detach().numpy(), 
+                               "train/epe": epe_loss.cpu().detach().numpy(), 
                                "epoch": start_epoch})
 
             t.set_postfix(loss="%1.3e" % loss.detach().cpu().numpy())
@@ -222,8 +221,7 @@ def validation(opt, net, val_DLoader):
             epe = np.sqrt(squared_distance).flatten()
             sum_epe += epe.tolist()
     avg_epe = np.mean(sum_epe)
-    if opt.write:
-        wandb.log({"val/avg_epe": avg_epe})
+    wandb.log({"val/avg_epe": avg_epe})
 
 
 
@@ -284,7 +282,7 @@ def prediction(opt, net, val_DLoader):
             ax.quiver(x[::spacing, ::spacing], y[::spacing, ::spacing], -gt_u[::spacing, ::spacing], gt_v[::spacing, ::spacing], scale=scale, color='b')
             plt.savefig(out_path/f"viz_{n_count}.png", dpi=300)
             output_imgs.append(out_path/f"viz_{n_count}.png")
-            if opt.write: wandb.log({"viz": [wandb.Image(str(img)) for img in output_imgs]})
+            wandb.log({"viz": [wandb.Image(str(img)) for img in output_imgs]})
 
 
 if __name__ == "__main__":
@@ -303,39 +301,34 @@ if __name__ == "__main__":
         train_tag.append("eval")
     if opt.test:
         train_tag.append("test")
-    
-    if opt.write:
-        # setup wandb run
-        run = wandb.init(
-        # Set the project where this run will be logged
-        project="Optical Illusion",
-        # name of the experiment
-        name=opt.name,
-        # notes
-        notes=opt.notes,
-        # Track hyperparameters and run metadata
-        config=opt,
-        # flag to resume
-        resume=opt.resume,
-        # add tags
-        tags=train_tag)
+
+    # setup wandb run
+    run = wandb.init(
+    # Set the project where this run will be logged
+    project="Optical Illusion",
+    # name of the experiment
+    name=opt.name,
+    # notes
+    notes=opt.notes,
+    # Track hyperparameters and run metadata
+    config=opt,
+    # flag to resume
+    resume=opt.resume,
+    # add tags
+    tags=train_tag,
+    # wandb mode
+    mode=opt.wandb_mode)
 
     # also upload key files to wandb
-    if opt.write:
-        artifact = wandb.Artifact(name= "src", type="code", description="contains all source code")
-        artifact.add_file("loss.py")
-        artifact.add_file("main.py")
-        artifact.add_file("network/FlowNetSD.py")
-        artifact.add_file("network/pwcnet.py")
-        artifact.add_file("train.sh")
-        run.log_artifact(artifact)
+    artifact = wandb.Artifact(name= "src", type="code", description="contains all source code")
+    artifact.add_file("loss.py")
+    artifact.add_file("main.py")
+    artifact.add_file("network/FlowNetSD.py")
+    artifact.add_file("network/pwcnet.py")
+    artifact.add_file("train.sh")
+    run.log_artifact(artifact)
 
     setup_seed(0)
-
-    if opt.debug:
-        debug = 20
-    else:
-        debug = None
 
     # get dataloader
     train_DLoader, val_Dloader, test_ouchi_DLoader, test_wheel_DLoader = load_dataset(opt)
