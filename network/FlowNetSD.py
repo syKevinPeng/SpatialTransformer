@@ -9,11 +9,11 @@ from .submodules import *
 'Parameter count = 45,371,666'
 
 class FlowNetSD(nn.Module):
-    def __init__(self, batchNorm=True):
+    def __init__(self, batchNorm=True, num_input_chan = 6):
         super(FlowNetSD,self).__init__()
 
         self.batchNorm = batchNorm
-        self.conv0   = conv(self.batchNorm,  6,   64)
+        self.conv0   = conv(self.batchNorm,  num_input_chan,   64)
         self.conv1   = conv(self.batchNorm,  64,   64, stride=2)
         self.conv1_1 = conv(self.batchNorm,  64,   128)
         self.conv2   = conv(self.batchNorm,  128,  128, stride=2)

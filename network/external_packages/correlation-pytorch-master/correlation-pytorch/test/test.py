@@ -156,7 +156,8 @@ def test_correlation1d():
 
 
 if __name__=='__main__':
-    test_correlation()
+    # test_correlation()
     #test_correlation1d()
     #test_correlation_0()
     #test_correlation1d_0()
+    pass

@@ -19,7 +19,7 @@ data_num = 1
 save_data_dir = './data/'+ name +'_FLOW/'
 os.makedirs(save_data_dir,exist_ok=True)
 
-def produce_uniform_flow(im1, magnitude = 1):
+def produce_uniform_flow(im1, magnitude = 2):
     # theta = np.random.uniform(low=0,high=360/180 * np.pi)
     theta = -45/180 * np.pi
     x = np.cos(theta) * magnitude

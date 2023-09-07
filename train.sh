@@ -1,17 +1,16 @@
 #for training
-python3 train_flownet_sd.py \
+python3 main.py \
 --train \
---bat_size 128 \
---network pwc \
---dataset_path /home/siyuan/research/dataset/ChairsSDHom/data \
---save_path /home/siyuan/research/SpatialTransformer/my_results/unsup_pwc_rgb_whole \
---save_frequency 100 \
---name "pwc whole rgb" \
 --epoch 1000 \
---notes "Training of the pwc model on the whole dataset of ChairSD unsupervised loss" \
---loss "unsup_loss" \
---write 
-
+--bat_size 32 \
+--network flownet \
+--loss unsup_loss \
+--dataset_path /home/siyuan/research/dataset/ChairsSDHom/data \
+--save_path /home/siyuan/research/SpatialTransformer/ckpts/exp0 \
+--save_frequency 100 \
+--name "RGB Flownet 1000 images" \
+--notes "Flownet model (with no correlation) trained on ChairsSDHom dataset with only 1000 RGB images" \
+--num_img_to_train 1000 \
 
 # for inference
 # python3 train_flownet_sd.py \
@@ -34,13 +33,12 @@ python3 train_flownet_sd.py \
 # for test
 # python3 train_flownet_sd.py \
 # --test \
+# --to_gray \
 # --bat_size 32 \
-# --to_gray False \
-# --network pwc \
+# --network flownet \
 # --loss unsup_loss \
 # --dataset_path /home/siyuan/research/dataset/ChairsSDHom/data \
-# --save_path /home/siyuan/research/SpatialTransformer/my_results/unsup_flownet_gray_whole_viz \
+# --save_path /home/siyuan/research/SpatialTransformer/ckpts/exp0 \
 # --save_frequency 100 \
-# --name "test whole RGB pwcnet unsupervised" \
-# --notes "generate predictions with unsupervised loss with PWC net" \
-# --load_path /home/siyuan/research/PWC-Net-2/PyTorch/pwc_net.pth.tar \
+# --name "RGB Flownet 1000 images" \
+# --notes "Flownet model (with no correlation) trained on ChairsSDHom dataset with only 1000 images" \

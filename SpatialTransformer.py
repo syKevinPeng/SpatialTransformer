@@ -18,6 +18,7 @@ class SpatialTransformer(nn.Module):
         # Create sampling grid
         vectors = [ torch.arange(0, s) for s in size ]
         grids = torch.meshgrid(vectors)
+        # print(f'grids shape: {grids}')
         grid  = torch.stack(grids) # y, x, z
         grid  = torch.unsqueeze(grid, 0)  #add batch
         grid = grid.type(torch.FloatTensor)
@@ -32,7 +33,6 @@ class SpatialTransformer(nn.Module):
             :param flow: the output from the U-Net
         """
         new_locs = self.grid + flow
-
         shape = flow.shape[2:]
 
         # Need to normalize grid values to [-1, 1] for resampler
@@ -45,5 +45,4 @@ class SpatialTransformer(nn.Module):
         elif len(shape) == 3:
             new_locs = new_locs.permute(0, 2, 3, 4, 1)
             new_locs = new_locs[..., [2,1,0]]
-
         return F.grid_sample(src, new_locs, mode=self.mode)

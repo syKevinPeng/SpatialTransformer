@@ -7,12 +7,11 @@ import random
 import os
 import wandb
 
-from torch.utils.tensorboard import SummaryWriter
-from SpatialTransformer import SpatialTransformer
 import torchvision
 from network.FlowNetSD import FlowNetSD
 from network.flow import CNN
 from network.pwcnet import PWCDCNet
+# from network.pwcnet import PWCDCNet
 from utils.flow_utils import vis_flow
 from utils.imtools import imshow, vfshown
 from torch.optim.lr_scheduler import MultiStepLR
@@ -21,10 +20,10 @@ from tqdm import tqdm
 from pathlib import Path
 import PIL
 from dataset import Train_Dataset, ChairsSDHom, Siyuan_Ouchi_Dataset
-from loss import MultiScale, pme_loss, total_loss, unsup_loss
+from loss import MultiScale, UnsupLoss
 import torch.nn.functional as F
 from matplotlib import pyplot as plt
-from torchsummary import summary
+from pytorch_model_summary import summary
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
@@ -43,7 +42,7 @@ parser.add_argument(
 )
 parser.add_argument("-C", type=int, default=3, help="frequency to save results")
 parser.add_argument("--gpu_idx", type=int, default=1)
-parser.add_argument("--debug", type=int, default=False)
+parser.add_argument("--num_img_to_train", type=int, default=False, help="set number of images to train with. This number should be smaller than the total number of images")
 parser.add_argument("--eval", action="store_true", help="do evaluation")
 parser.add_argument("--train", action="store_true", help="do training")
 parser.add_argument('--test', action='store_true', help='do testing')
@@ -68,20 +67,6 @@ def setup_seed(seed):
     np.random.seed(seed)
     random.seed(seed)
     torch.backends.cudnn.deterministic = True
-def save_files(opt):
-    if opt.write:
-        from shutil import copyfile, copytree
-
-        src_dir = Path(opt.save_path, "src")
-        if not src_dir.is_dir():
-            os.makedirs(src_dir, exist_ok=True)
-            copyfile(
-                os.path.basename(__file__),
-                os.path.join(src_dir, os.path.basename(__file__)),
-            )
-            copyfile("loss.py", os.path.join(src_dir, "loss.py"))
-            copytree("./network/", os.path.join(src_dir, "network"))
-            copytree("./utils/", os.path.join(src_dir, "utils"))
 
 def load_dataset(opt):
     train_dset = ChairsSDHom(
@@ -89,7 +74,7 @@ def load_dataset(opt):
     val_dest = ChairsSDHom(
         is_cropped=0, root=opt.dataset_path, dstype="test", to_gray=opt.to_gray, debug=debug
     )
-    test_ouchi_dset = Train_Dataset(dir="data/diag_ouchi_FLOW", debug=None)
+    test_ouchi_dset = Train_Dataset(dir="data/small_ouchi_FLOW", debug=None)
     test_wheel_dset = Train_Dataset(dir="./data/outer_wheel_FLOW", debug = None)
     if len(test_ouchi_dset) == 0:
         raise Exception("no ouchi data found")
@@ -113,12 +98,17 @@ def load_dataset(opt):
 
 def load_network(opt):
     if opt.network == "flownet":
-        net = FlowNetSD().cuda()
+        if opt.to_gray:
+            net = FlowNetSD(num_input_chan=2).cuda() # if gray, the input size would be (batch_size, 2, 256, 256)
+        else:
+            net = FlowNetSD().cuda() # if rgb, the input size would be (batch_size, 6, 256, 256)
     elif opt.network == "cnn":
         net = CNN(depth=10).cuda()
     elif opt.network == "pwc":
         # md is maximum displacement for correlation
-        net = PWCDCNet(md=4).cuda()
+        net = PWCDCNet().cuda()
+        print(summary(net,torch.zeros((1, 6, 256, 256)).cuda(), show_input=True))
+        exit()
     else:
         raise Exception("network not supported")
     print(f'Using {opt.network}')
@@ -128,7 +118,7 @@ def load_loss(opt):
     if opt.loss == "multi_scale":
         return  MultiScale(startScale=1, numScales=7, norm="L2")
     elif opt.loss == "unsup_loss":
-        return unsup_loss
+        return UnsupLoss()
     else:
         raise Exception(f"loss {opt.loss} not supported. It has to be one of multi_scale, unsup_loss")
     
@@ -163,9 +153,9 @@ def train(opt, net, train_DLoader):
                     input_imgs = torch.cat((bat_img1, bat_img2), dim=1)
                     bat_gt_flow = bat["flow"].cuda()
                     bat_pred_flow = net(input_imgs)
-                    # you have to scale the flow back to original size
-
-                    bat_pred_flow = F.interpolate(bat_pred_flow[0], size=(256, 256), mode='bilinear', align_corners=False)
+                    bat_pred_flow = (F.interpolate(bat_pred_flow, size=(256, 256), mode='bilinear', align_corners=False))
+                    bat_pred_flow = bat_pred_flow * 20
+                    # print(f'bat_pred_flow shape: {bat_pred_flow.shape}')
                     loss = load_loss(opt)(bat_img1, bat_img2, bat_pred_flow, bat_gt_flow)
                     loss.backward()
                     optimizer.step()
@@ -186,9 +176,9 @@ def train(opt, net, train_DLoader):
                     loss.backward()
                     optimizer.step()
 
-                iters = start_epoch * bat_num + n_count
                 if opt.write:
-                    wandb.log({"train/loss": loss.cpu().detach().numpy(), 
+                    wandb.log({"train/loss": loss.cpu().detach().numpy()[0], 
+                               "train/epe": loss.cpu().detach().numpy()[1], 
                                "epoch": start_epoch})
 
             t.set_postfix(loss="%1.3e" % loss.detach().cpu().numpy())
@@ -208,9 +198,6 @@ def train(opt, net, train_DLoader):
                 wandb.save(os.path.join(opt.save_path, "net_epoch_%s.pth" % start_epoch))
 
 def validation(opt, net, val_DLoader):
-    start_epoch = 0
-    flownet_loss = MultiScale(startScale=1, numScales=7, norm="L2")
-    bat_num = len(val_DLoader)
     net.eval()
     # load pytorch model
     if opt.load_path:
@@ -265,11 +252,9 @@ def prediction(opt, net, val_DLoader):
             im2 = img_transform(im2)
             gt_flow = img_transform(gt_flow)
 
-
             out_path = Path(opt.save_path) / "viz_result"
             out_path.mkdir(parents=True, exist_ok=True)
             pred_flow = net(torch.cat((im1, im2), dim=1))
-
             # remove redundent first channel and swap channels to w, h, c
             pred_flow = pred_flow.cpu().squeeze(0).permute(1, 2, 0)
             img1 = im1.cpu().squeeze(0).permute(1, 2, 0)
@@ -295,32 +280,11 @@ def prediction(opt, net, val_DLoader):
             # Create a new image with the original image and flow arrows
             fig, ax = plt.subplots()
             ax.imshow(img1)
-            ax.quiver(x[::spacing, ::spacing], y[::spacing, ::spacing], pred_u[::spacing, ::spacing], pred_v[::spacing, ::spacing], scale=scale, color='r')
+            ax.quiver(x[::spacing, ::spacing], y[::spacing, ::spacing], -pred_u[::spacing, ::spacing], pred_v[::spacing, ::spacing], scale=scale, color='r')
             ax.quiver(x[::spacing, ::spacing], y[::spacing, ::spacing], -gt_u[::spacing, ::spacing], gt_v[::spacing, ::spacing], scale=scale, color='b')
             plt.savefig(out_path/f"viz_{n_count}.png", dpi=300)
             output_imgs.append(out_path/f"viz_{n_count}.png")
             if opt.write: wandb.log({"viz": [wandb.Image(str(img)) for img in output_imgs]})
-
-            # if name == "wheel":
-
-            #     def compute_gradient(img):
-            #         import torch.nn.functional as F
-
-            #         gradx = img[..., 1:, :] - img[..., :-1, :]
-            #         grady = img[..., 1:] - img[..., :-1]
-            #         gradx = F.pad(gradx, (0, 0, 0, 1))
-            #         grady = F.pad(grady, (0, 1, 0, 0))
-            #         mag = torch.sqrt(gradx**2 + grady**2)
-            #         return mag
-
-            #     mag = compute_gradient(im1)
-            #     loc = (mag < 0.005).cpu().numpy()
-
-            #     pred_flow[0, ...] = pred_flow[0, ...].cpu() * torch.from_numpy(~loc)
-            #     gt_flow[0, ...] = gt_flow[0, ...].cpu() * torch.from_numpy(~loc)
-            #     sample_rate = 5
-            #     keep_scale = True
-            #     scale = 15
 
 
 if __name__ == "__main__":
@@ -344,7 +308,7 @@ if __name__ == "__main__":
         # setup wandb run
         run = wandb.init(
         # Set the project where this run will be logged
-        project="SpatialTransformer",
+        project="Optical Illusion",
         # name of the experiment
         name=opt.name,
         # notes
@@ -356,8 +320,17 @@ if __name__ == "__main__":
         # add tags
         tags=train_tag)
 
+    # also upload key files to wandb
+    if opt.write:
+        artifact = wandb.Artifact(name= "src", type="code", description="contains all source code")
+        artifact.add_file("loss.py")
+        artifact.add_file("main.py")
+        artifact.add_file("network/FlowNetSD.py")
+        artifact.add_file("network/pwcnet.py")
+        artifact.add_file("train.sh")
+        run.log_artifact(artifact)
+
     setup_seed(0)
-    save_files(opt)
 
     if opt.debug:
         debug = 20
@@ -380,9 +353,9 @@ if __name__ == "__main__":
     if opt.test:
         print(f"Begin testing/visulization")
         # prediction on ouchi data
-        # prediction(opt,net, test_ouchi_DLoader)
+        prediction(opt,net, test_ouchi_DLoader)
         # prediction on wheel data
-        prediction(opt,net, test_wheel_DLoader)
+        # prediction(opt,net, test_wheel_DLoader)
         print(f"Finish testing/visulization")
 
     

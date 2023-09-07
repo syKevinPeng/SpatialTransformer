@@ -40,13 +40,14 @@ class PWCDCNet(nn.Module):
     PWC-DC net. add dilation convolution and densenet connections
 
     """
-    def __init__(self, md=4):
+    def __init__(self, md=4, training=True):
         """
         input: md --- maximum displacement (for correlation. default: 4), after warpping
 
         """
         super(PWCDCNet,self).__init__()
 
+        self.training = training
         self.conv1a  = conv(3,   16, kernel_size=3, stride=2)
         self.conv1aa = conv(16,  16, kernel_size=3, stride=1)
         self.conv1b  = conv(16,  16, kernel_size=3, stride=1)
