@@ -1,7 +1,8 @@
 wandb/*
 ckpts/*
-my_result/*
+my_results/*
 checkpoints/*
+data/*
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
