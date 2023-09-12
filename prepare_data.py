@@ -12,8 +12,8 @@ from skimage.transform import EuclideanTransform
 from SpatialTransformer import SpatialTransformer
 
 
-name = 'small_ouchi'
-data_dir = os.path.join("./data","Ouchi","small_ouchi.png")
+name = 'test'
+data_dir = '/home/siyuan/research/SpatialTransformer/data/Ouchi_illusion/Ouchi/horizontal_ouchi.png'
 data = sorted(glob(data_dir))
 data_num = 1
 save_data_dir = './data/'+ name +'_FLOW/'
@@ -21,7 +21,8 @@ os.makedirs(save_data_dir,exist_ok=True)
 
 def produce_uniform_flow(im1, magnitude = 2):
     # theta = np.random.uniform(low=0,high=360/180 * np.pi)
-    theta = -45/180 * np.pi
+    # theta = -45/180 * np.pi
+    theta = 0
     x = np.cos(theta) * magnitude
     y = np.sin(theta) * magnitude
 

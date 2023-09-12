@@ -19,11 +19,12 @@ import cv2
 
 
 class Train_Dataset(Dataset):
-    def __init__(self, dir, num_imgs = 0):
+    def __init__(self, dir, num_imgs = 0, to_gray = False, render_size = (256, 256)):
         self.dir = dir
         self.num_imgs = num_imgs
-
+        self.to_gray = to_gray
         self.data_im1 = sorted(glob(os.path.join(dir, 'im1*.png')))
+        self.render_size = render_size
 
 
     def  __len__(self):
@@ -32,16 +33,26 @@ class Train_Dataset(Dataset):
         return img_num
 
     def __getitem__(self, i):
-        im1 = imread(os.path.join(self.dir, 'im1_%d.png'%i))
-        im2 = imread(os.path.join(self.dir, 'im2_%d.png' % i))
+        img1 = imread(os.path.join(self.dir, 'im1_%d.png'%i))
+        img2 = imread(os.path.join(self.dir, 'im2_%d.png' % i))
         flow = loadmat(os.path.join(self.dir, 'mat_%d.mat' % i))['flow'].astype(np.float32)
 
-
-        im1 = torch.from_numpy(im1).unsqueeze(0)
-        im2 = torch.from_numpy(im2).unsqueeze(0)
+        # check if image is one channel, if so, change it to three channels
+        if self.to_gray:
+            if len(img1.shape) == 3:
+                img1 = rgb2gray(img1)
+                img2 = rgb2gray(img2)
+            else:# the gray gray case
+                img1 = img1.reshape(1, img1.shape[0], img1.shape[1])
+                img2 = img2.reshape(1, img2.shape[0], img2.shape[1])
+        else: # RGB case
+            if len(img1.shape) == 2:
+                img1 = np.stack((img1, img1, img1), axis=0)
+            if len(img2.shape) == 2:
+                img2 = np.stack((img2, img2, img2), axis=0)
         flow = torch.from_numpy(flow).squeeze()
 
-        dic = {'im1': im1, 'im2': im2, 'flow':flow}
+        dic = {'im1': img1, 'im2': img2, 'flow':flow}
         return dic
     
 class Siyuan_Ouchi_Dataset(Dataset):
@@ -163,10 +174,7 @@ class ChairsSDHom(Dataset):
 
 
   def __len__(self):
-      if self.num_imgs is not None:
-          return self.num_imgs
-      else:
-          return self.size
+    return len(self.image_list)
 
 # Convert the optical flow from uint16 to float32 and normalize to [-1, 1]
 def readFlowKITTI(filename):
