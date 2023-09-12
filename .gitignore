@@ -1,4 +1,6 @@
-result/*
+wandb/*
+ckpts/*
+my_result/*
 checkpoints/*
 # Byte-compiled / optimized / DLL files
 __pycache__/
