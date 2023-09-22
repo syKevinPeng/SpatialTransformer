@@ -3,6 +3,7 @@ from glob import glob
 import numpy as np
 import torch
 from matplotlib.image import imread
+import matplotlib.pyplot as plt
 
 from utils.flow_utils import save_flow, load_flow, vis_flow
 from utils.imtools import imshow, rgb2gray, vfshown
@@ -10,26 +11,37 @@ from scipy.io import savemat
 from skimage.transform import warp
 from skimage.transform import EuclideanTransform
 from SpatialTransformer import SpatialTransformer
+import torchvision.transforms as transforms
 
 
-name = 'test'
-data_dir = '/home/siyuan/research/SpatialTransformer/data/Ouchi_illusion/Ouchi/horizontal_ouchi.png'
+name = 'texture4'
+data_dir = '/home/siyuan/research/SpatialTransformer/data/texture/texture4.jpg'
 data = sorted(glob(data_dir))
 data_num = 1
 save_data_dir = './data/'+ name +'_FLOW/'
 os.makedirs(save_data_dir,exist_ok=True)
 
-def produce_uniform_flow(im1, magnitude = 2):
+def produce_uniform_flow(im1, magnitude = 5):
     # theta = np.random.uniform(low=0,high=360/180 * np.pi)
     # theta = -45/180 * np.pi
-    theta = 0
+    # set theta so that x =1 and y = 0
+    theta = 0/180 * np.pi
+    # theta = 0
     x = np.cos(theta) * magnitude
     y = np.sin(theta) * magnitude
 
     im1 = torch.from_numpy(im1.astype(np.float32))
-    im1 = im1.unsqueeze(0).unsqueeze(0)
-    spatial_transform = SpatialTransformer(im1.shape[-2:])
-    flow = torch.ones((1,2,*im1.shape[-2:]))
+    if len(im1.shape) == 2:
+        img_size = im1.shape[:2]
+        im1 = im1.unsqueeze(0).unsqueeze(0)
+    elif len(im1.shape) == 3:
+        img_size = im1.shape[:2]
+        im1 = im1.permute(2,0,1)
+        im1 = im1.unsqueeze(0)
+    else :
+        raise ValueError('The image dimension is wrong!')
+    spatial_transform = SpatialTransformer(img_size)
+    flow = torch.ones((1,2,*img_size))
     flow[0, 0, :, :] = flow[0, 0, :, :] * x
     flow[0, 1, :, :] = flow[0, 1, :, :] * y
     im2_tmp = spatial_transform(im1, flow)
@@ -82,6 +94,8 @@ def produce_zoom_flow(im1, magnitude = 10):
 for i in range(data_num):
     # if name == 'Ouchi':
     im1 = imread(os.path.join(data[0]), 0)
+    if im1.shape[-1] == 4:
+        im1 = im1[:,:,:3]
     im1 = rgb2gray(im1)
     # else:
     #     im1 = imread(os.path.join(data[i]),0)

@@ -1,15 +1,19 @@
 import math
 from PIL import Image, ImageDraw  
 import numpy as np
+from pathlib import Path
+
+output_path = Path('/home/siyuan/research/SpatialTransformer/data/Ouchi_illusion/Ouchi')
+output_file_name = 'ouchi_0_255.png'
 # Define the size of the image  
 width, height =256, 256
 # Define the size of the rectangles and the space between them  
 rectangle_width = 5 
-rectangle_height = 15  
+rectangle_height = 25  
 radius = 45
 
-bg_color = 40
-fg_color = 200
+bg_color = 0
+fg_color = 255
   
 # Create a new image with white background  
 img = Image.new('RGB', (width, height), (bg_color, bg_color, bg_color))  
@@ -19,10 +23,10 @@ d = ImageDraw.Draw(img)
 center_x, center_y = width // 2, height // 2  
   
 # Draw the rectangles  
-for i in range(0, width, rectangle_width):  
-    for j in range(0, height, rectangle_height):  
-        if (i // rectangle_width + j // rectangle_height) % 2 == 0:
-            d.rectangle([i, j, i + rectangle_width-1, j + rectangle_height-1], fill=(fg_color, fg_color, fg_color)) 
+for i in range(0, width, rectangle_height):  
+    for j in range(0, height, rectangle_width):  
+        if (i // rectangle_height + j // rectangle_width) % 2 == 0:
+            d.rectangle([i, j, i + rectangle_height-1, j + rectangle_width-1], fill=(fg_color, fg_color, fg_color)) 
 
 # Create a mask for the circle  
 mask = Image.new('L', (width, height), 0)  
@@ -47,6 +51,6 @@ loc = np.where(img == 0)
 img[loc] = bg_color
 # convert numpy array to pil image
 img = Image.fromarray(img)
-img.save('variant_ouchi_1.png')
+img.save(output_path/output_file_name)
 # Save the image  
 # img.save('variant_ouchi_2.png')  

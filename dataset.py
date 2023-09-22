@@ -36,12 +36,13 @@ class Train_Dataset(Dataset):
         img1 = imread(os.path.join(self.dir, 'im1_%d.png'%i))
         img2 = imread(os.path.join(self.dir, 'im2_%d.png' % i))
         flow = loadmat(os.path.join(self.dir, 'mat_%d.mat' % i))['flow'].astype(np.float32)
-
         # check if image is one channel, if so, change it to three channels
         if self.to_gray:
             if len(img1.shape) == 3:
                 img1 = rgb2gray(img1)
                 img2 = rgb2gray(img2)
+                img1 = img1.reshape(1, img1.shape[0], img1.shape[1])
+                img2 = img2.reshape(1, img2.shape[0], img2.shape[1])
             else:# the gray gray case
                 img1 = img1.reshape(1, img1.shape[0], img1.shape[1])
                 img2 = img2.reshape(1, img2.shape[0], img2.shape[1])
@@ -50,8 +51,11 @@ class Train_Dataset(Dataset):
                 img1 = np.stack((img1, img1, img1), axis=0)
             if len(img2.shape) == 2:
                 img2 = np.stack((img2, img2, img2), axis=0)
+            # swtich channel if needed
+            if img1.shape[2] == 3:
+                img1 = img1.transpose(2, 0, 1)
+                img2 = img2.transpose(2, 0, 1)
         flow = torch.from_numpy(flow).squeeze()
-
         dic = {'im1': img1, 'im2': img2, 'flow':flow}
         return dic
     
@@ -152,7 +156,7 @@ class ChairsSDHom(Dataset):
     preprocess_img_gray = transforms.Compose([
         transforms.ToPILImage(),
         transforms.CenterCrop(self.render_size),
-        transforms.Grayscale(num_output_channels=3),
+        transforms.Grayscale(num_output_channels=1),
         transforms.ToTensor()
     ])
     preprocess_flow = transforms.Compose([

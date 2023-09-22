@@ -57,14 +57,15 @@ class UnsupLoss(nn.Module):
     def forward(self, im1, im2, output, target):
         if type(output) is tuple:
             pmelossvalue = pme_loss(im1, output[0], im2, norm = 'L1')
-            gdlossvalue = gradient_loss(output[0], smooth_coef = 0.01, penalty='L2')
+            gdlossvalue = gradient_loss(output[0], smooth_coef = 0.005, penalty='L2')
             lossvalue = pmelossvalue + gdlossvalue
             epevalue = EPE(output[0], target)
             return [lossvalue, epevalue]
         else:
-            epevalue += EPE(output, target)
-            # lossvalue += self.loss(output, target)
-            lossvalue = pme_loss(im1, output[0], im2)
+            pmelossvalue = pme_loss(im1, output, im2, norm = 'L1')
+            gdlossvalue = gradient_loss(output, smooth_coef = 0.005, penalty='L1')
+            lossvalue = pmelossvalue + gdlossvalue
+            epevalue = EPE(output, target)
             return  [lossvalue, epevalue]
 
 # Reference from original Flownet2 code: https://github.com/NVIDIA/flownet2-pytorch/blob/master/losses.py

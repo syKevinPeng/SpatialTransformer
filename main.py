@@ -100,8 +100,6 @@ def load_network(opt):
     elif opt.network == "pwc":
         # md is maximum displacement for correlation
         net = PWCDCNet().cuda()
-        print(summary(net,torch.zeros((1, 6, 256, 256)).cuda(), show_input=True))
-        exit()
     else:
         raise Exception("network not supported")
     print(f'Using {opt.network}')
@@ -146,10 +144,9 @@ def train(opt, net, train_DLoader):
                     input_imgs = torch.cat((bat_img1, bat_img2), dim=1)
                     bat_gt_flow = bat["flow"].cuda()
                     bat_pred_flow = net(input_imgs)
-                    bat_pred_flow = (F.interpolate(bat_pred_flow, size=(256, 256), mode='bilinear', align_corners=False))
-                    bat_pred_flow = bat_pred_flow * 20
+                    bat_pred_flow = torchvision.transforms.Resize((256, 256))(bat_pred_flow[0])
                     # print(f'bat_pred_flow shape: {bat_pred_flow.shape}')
-                    loss = load_loss(opt)(bat_img1, bat_img2, bat_pred_flow, bat_gt_flow)
+                    [loss, epe_loss] = load_loss(opt)(bat_img1, bat_img2, bat_pred_flow, bat_gt_flow)
                     loss.backward()
                     optimizer.step()
 
@@ -265,7 +262,10 @@ def prediction(opt, net, val_DLoader):
     # load pytorch model
     if opt.load_path:
         ckp = torch.load(opt.load_path)
-        net.load_state_dict(ckp["net"])
+        if opt.network == "pwc":
+            net.load_state_dict(ckp)
+        else:
+            net.load_state_dict(ckp["net"])
         print(f"load from {opt.load_path}")
     else:
         raise Exception("load path not specified")
@@ -285,6 +285,15 @@ def prediction(opt, net, val_DLoader):
             pred_flow = pred_flow.cpu().squeeze(0).permute(1, 2, 0)
             img1 = im1.cpu().squeeze(0).permute(1, 2, 0)
             gt_flow = gt_flow.cpu().squeeze(0).permute(1, 2, 0)
+
+            if opt.network == "pwc":
+                # sacle the flow
+                pred_flow = pred_flow * 20
+                pred_flow = pred_flow.permute(2, 0, 1)
+                print(f'pred_flow shape: {pred_flow.shape}')
+                pred_flow = torchvision.transforms.Resize((256, 256))(pred_flow)
+                pred_flow = pred_flow.permute(1, 2, 0)
+
             if pred_flow.shape[:2] != img1.shape[:2]:
                 raise ValueError(
                     f"pred_flow {pred_flow.shape[:2]} and image {img1.shape[:2]} should"
@@ -305,6 +314,9 @@ def prediction(opt, net, val_DLoader):
             scale = None
             # Create a new image with the original image and flow arrows
             fig, ax = plt.subplots()
+            if img1.shape[2] == 1:
+                # convert one channel image to three channel
+                img1 = img1.repeat(1,1,3)
             ax.imshow(img1)
             ax.quiver(x[::spacing, ::spacing], y[::spacing, ::spacing], -pred_u[::spacing, ::spacing], pred_v[::spacing, ::spacing], scale=scale, color='r')
             ax.quiver(x[::spacing, ::spacing], y[::spacing, ::spacing], -gt_u[::spacing, ::spacing], gt_v[::spacing, ::spacing], scale=scale, color='b')
@@ -312,6 +324,24 @@ def prediction(opt, net, val_DLoader):
             output_imgs.append(out_path/f"viz_{n_count}.png")
             wandb.log({"viz": [wandb.Image(str(img)) for img in output_imgs]})
 
+            pred_flow = pred_flow.numpy()
+            gt_flow = gt_flow.numpy()
+            # create an endpoint error map (EPE map)
+            # create a new image
+            plt.figure()
+            epe = np.sum((pred_flow - gt_flow) ** 2, axis=-1)
+            plt.imshow(epe, cmap='hot', interpolation='nearest')
+            plt.colorbar(label='EPE')
+            plt.title('EPE map')
+            plt.savefig(out_path/f"epe_map_{n_count}.png", dpi=300)
+            wandb.log({"epe_map": wandb.Image(str(out_path/f"epe_map_{n_count}.png"))})
+
+            # calculate epe for image:
+            imgepe = np.sqrt(epe).flatten()
+            avg_epe = np.mean(imgepe)
+            wandb.log({"test/avg_epe": avg_epe})
+            print(f"avg_epe: {avg_epe}")
+1
 
 if __name__ == "__main__":
     opt = parser.parse_args()
