@@ -1,19 +1,30 @@
 #!/bin/bash
 current_date_time=`date +"%Y-%m-%d_%T"`
-ouchi_path = "/home/siyuan/research/SpatialTransformer/ckpts/exp6_gray_whole_l1_2023-09-21_14:38:47/net_epoch_199.pth"
+ouchi_0_255_path="/home/siyuan/research/SpatialTransformer/data/ouchi_0-255_FLOW"
+ouchi_40_200_path="/home/siyuan/research/SpatialTransformer/data/ouchi_40-200_FLOW"
+ouchi_60_180_path="/home/siyuan/research/SpatialTransformer/data/ouchi_60-180_FLOW"
+ouchi_80_160_path="/home/siyuan/research/SpatialTransformer/data/ouchi_80-160_FLOW"
+small_ouchi_0_255="/home/siyuan/research/SpatialTransformer/data/small_ouchi_0-255_FLOW"
+small_ouchi_40_200="/home/siyuan/research/SpatialTransformer/data/small_ouchi_40-200_FLOW"
+small_ouchi_60_180="/home/siyuan/research/SpatialTransformer/data/small_ouchi_60-180_FLOW"
+small_ouchi_80_160="/home/siyuan/research/SpatialTransformer/data/small_ouchi_80-160_FLOW"
+small_ouchi_100_140="/home/siyuan/research/SpatialTransformer/data/small_ouchi_100-140_FLOW"
+
+
 #for training
-# python3 main.py \
-# --train \
-# --epoch 200 \
-# --bat_size 64 \
-# --network flownet \
-# --loss unsup_loss \
-# --dataset_path /home/siyuan/research/dataset/ChairsSDHom/data \
-# --save_path /home/siyuan/research/SpatialTransformer/ckpts/exp6_gray_whole_l1_${current_date_time} \
-# --save_frequency 100 \
-# --name "exp6 whole gray Change of Loss Term" \
-# --notes "flownet model trained on ChairsSDHom dataset. change of gradient_loss coefficient to 0.005 from 0.1" \
-# --wandb_mode "online" # wandb model can be "online", "offline", "disabled"
+python3 main.py \
+--train \
+--to_gray \
+--epoch 400 \
+--bat_size 64 \
+--network FlowNetC \
+--loss multiscale \
+--dataset_path /home/siyuan/research/dataset/ChairsSDHom/data \
+--save_path /home/siyuan/research/SpatialTransformer/ckpts/exp9_gray_whole_FlowNetC_multiscale${current_date_time} \
+--save_frequency 100 \
+--name "exp8 whole gray FlowNetC Continued" \
+--notes "FlowNetC (With Correlation) model trained on ChairsSDHom dataset. Multiscale loss" \
+--wandb_mode "disabled" # wandb model can be "online", "offline", "disabled" 
 
 # for inference
 # python3 main.py \
@@ -31,33 +42,32 @@ ouchi_path = "/home/siyuan/research/SpatialTransformer/ckpts/exp6_gray_whole_l1_
 
 
 # for test
-python3 main.py \
---test \
---bat_size 64 \
---network flownet \
---loss unsup_loss \
---dataset_path /home/siyuan/research/dataset/ChairsSDHom/data \
---save_path /home/siyuan/research/SpatialTransformer/ckpts/exp6_viz_ouchi_${current_date_time} \
---save_frequency 100 \
---name "exp6 viz - ouchi" \
---notes "Flownet model (with no correlation) trained on ChairsSDHom dataset with all gray images. visulize on normal ouchi. Note: less smoothness applied" \
---load_path "/home/siyuan/research/SpatialTransformer/ckpts/exp6_gray_whole_l1_2023-09-21_14:38:47/net_epoch_199.pth" \
---wandb_mode "online" \
---test_dataset_path "/home/siyuan/research/SpatialTransformer/data/brick_FLOW"
+# python3 main.py \
+# --test \
+# --to_gray \
+# --bat_size 64 \
+# --network FlowNetSD \
+# --loss unsup_loss \
+# --dataset_path /home/siyuan/research/dataset/ChairsSDHom/data \
+# --save_path /home/siyuan/research/SpatialTransformer/ckpts/test_${current_date_time} \
+# --save_frequency 100 \
+# --name "exp8 viz - normal ouchi" \
+# --notes "FlowNetC model trained on ChairsSDHom dataset." \
+# --load_path "/home/siyuan/research/SpatialTransformer/ckpts/exp8_gray_whole_FlowNetC_2023-10-04_21:21:57/net_epoch_1000.pth" \
+# --wandb_mode "disabled" \
+# --test_dataset_path ${small_ouchi_0_255}
 
 
 
 # python3 main.py \
 # --test \
-# --to_gray \
 # --bat_size 64 \
-# --network flownet \
+# --network FlowNetSD \
 # --loss unsup_loss \
 # --dataset_path /home/siyuan/research/dataset/ChairsSDHom/data \
-# --save_path /home/siyuan/research/SpatialTransformer/ckpts/exp3_texture4_${current_date_time} \
-# --save_frequency 100 \
-# --name "exp3 gray whole texture 4" \
-# --notes "flownet model trained on ChairsSDHom. Visulize texture4, move upward" \
-# --load_path "/home/siyuan/research/SpatialTransformer/ckpts/exp3_Gray_whole/net_epoch_999.pth" \
+# --save_path /home/siyuan/research/SpatialTransformer/ckpts/exp6_small_ouchi_100-140_${current_date_time} \
+# --name "exp6 gray whole l1 viz on small 100-140 ouchi" \
+# --notes "FlowNetC model trained on ChairsSDHom dataset. " \
+# --load_path "/home/siyuan/research/SpatialTransformer/ckpts/exp8_gray_whole_FlowNetC_2023-09-29_20:15:10/net_epoch_399.pth" \
 # --wandb_mode "online" \
-# --test_dataset_path "/home/siyuan/research/SpatialTransformer/data/texture4_FLOW"
+# --test_dataset_path ${small_ouchi_100_140}

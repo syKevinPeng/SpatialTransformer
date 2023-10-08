@@ -1,4 +1,5 @@
 import argparse
+from sympy import N
 import torch
 import warnings
 import numpy as np
@@ -10,7 +11,9 @@ import torchvision
 from network.FlowNetSD import FlowNetSD
 from network.flow import CNN
 from network.pwcnet import PWCDCNet
+from network.FlowNetC import FlowNetC
 # from network.pwcnet import PWCDCNet
+from network.external_packages.torch_receptive_field.receptive_field import receptive_field
 from utils.flow_utils import vis_flow
 from utils.imtools import imshow, vfshown
 from torch.optim.lr_scheduler import MultiStepLR
@@ -23,6 +26,7 @@ from loss import MultiScale, UnsupLoss
 import torch.nn.functional as F
 from matplotlib import pyplot as plt
 from pytorch_model_summary import summary
+from torchvision.transforms.functional import InterpolationMode
 
 parser = argparse.ArgumentParser()
 parser.add_argument(
@@ -50,14 +54,14 @@ parser.add_argument("--resume", action="store_true")
 parser.add_argument(
     f"--dataset_path", type=str, default="/mnt/e/Downloads/ChairsSDHom/data"
 )
-parser.add_argument("--network", type=str, default="flownet")
+parser.add_argument("--network", type=str, default="FlowNetSD")
 parser.add_argument("--loss", type=str, default="multi_scale")
 parser.add_argument("--to_gray", action="store_true")
 parser.add_argument('--name', type=str, default='flownet-exp3')    
 parser.add_argument("--notes", type=str, default="Whole dataset, rgb images")
 parser.add_argument("--load_path", type=str, default=None)
 parser.add_argument("--wandb_mode", type=str, default="offline", choices=["online", "offline", "disabled"])
-parser.add_argument("--test_dataset_path", type=str, default="data/small_ouchi_FLOW")
+parser.add_argument("--test_dataset_path", type=str, default="/home/siyuan/research/SpatialTransformer/data/ouchi_0-255_FLOW")
 
 warnings.filterwarnings("ignore")
 
@@ -90,9 +94,10 @@ def load_dataset(opt):
     return train_DLoader, val_Dloader, test_img_DLoader
 
 def load_network(opt):
-    if opt.network == "flownet":
+    if opt.network == "FlowNetSD":
         if opt.to_gray:
             net = FlowNetSD(num_input_chan=2).cuda() # if gray, the input size would be (batch_size, 2, 256, 256)
+            # receptive_field(net, (2, 256, 256))
         else:
             net = FlowNetSD().cuda() # if rgb, the input size would be (batch_size, 6, 256, 256)
     elif opt.network == "cnn":
@@ -100,14 +105,21 @@ def load_network(opt):
     elif opt.network == "pwc":
         # md is maximum displacement for correlation
         net = PWCDCNet().cuda()
+    elif opt.network == "FlowNetC":
+        if opt.to_gray:
+            net = FlowNetC(num_input_chan=2).cuda()
+            # receptive_field(net, (2, 256, 256))
+        else:
+            net = FlowNetC(num_input_chan=6).cuda()
+
     else:
         raise Exception("network not supported")
     print(f'Using {opt.network}')
     return net
 
 def load_loss(opt):
-    if opt.loss == "multi_scale":
-        return  MultiScale(startScale=1, numScales=7, norm="L2")
+    if opt.loss == "multiscale":
+        return  MultiScale()
     elif opt.loss == "unsup_loss":
         return UnsupLoss()
     else:
@@ -119,7 +131,7 @@ def train(opt, net, train_DLoader):
     scheduler = MultiStepLR(optimizer, milestones=[700, 900, 1300], gamma=0.5)  # learning rates
 
     start_epoch = 0
-    if opt.resume and wandb.run.resumed:
+    if opt.resume or wandb.run.resumed:
         resume_dir = opt.load_path
         ckp = torch.load(resume_dir)
         net.load_state_dict(ckp["net"])
@@ -144,14 +156,29 @@ def train(opt, net, train_DLoader):
                     input_imgs = torch.cat((bat_img1, bat_img2), dim=1)
                     bat_gt_flow = bat["flow"].cuda()
                     bat_pred_flow = net(input_imgs)
-                    bat_pred_flow = torchvision.transforms.Resize((256, 256))(bat_pred_flow[0])
+                    bat_pred_flow = torchvision.transforms.Resize((256, 256), interpolation=InterpolationMode.BILINEAR)(bat_pred_flow[0])
                     # print(f'bat_pred_flow shape: {bat_pred_flow.shape}')
+                    [loss, epe_loss] = load_loss(opt)(bat_img1, bat_img2, bat_pred_flow, bat_gt_flow)
+                    loss.backward()
+                    optimizer.step()
+                
+                if opt.network == "FlowNetC":
+                    bat_img1 = bat["im1"].cuda()
+                    bat_img2 = bat["im2"].cuda()
+                    input_imgs = torch.cat((bat_img1, bat_img2), dim=1)
+                    # input_imgs size = (batch_size, 6, 256, 256)
+                
+                    bat_gt_flow = bat["flow"].cuda()
+
+                    # bat_pred_flow = net(torch.cat((bat_im1, bat_im2), dim=1))
+                    bat_pred_flow = net(input_imgs)
+                    # loss return a list [loss value, epe value]
                     [loss, epe_loss] = load_loss(opt)(bat_img1, bat_img2, bat_pred_flow, bat_gt_flow)
                     loss.backward()
                     optimizer.step()
 
                     
-                if opt.network == "flownet":
+                if opt.network == "FlowNetSD" :
                     #(3, 2, 256, 256)=> we need to have input shape (channel, num_img, height, width)
                     bat_img1 = bat["im1"].cuda()
                     bat_img2 = bat["im2"].cuda()
@@ -282,6 +309,8 @@ def prediction(opt, net, val_DLoader):
             out_path.mkdir(parents=True, exist_ok=True)
             pred_flow = net(torch.cat((im1, im2), dim=1))
             # remove redundent first channel and swap channels to w, h, c
+            if opt.network == "pwc" or opt.network == "FlowNetC":
+               pred_flow = torchvision.transforms.Resize((256, 256), interpolation=InterpolationMode.BILINEAR)(pred_flow[0])
             pred_flow = pred_flow.cpu().squeeze(0).permute(1, 2, 0)
             img1 = im1.cpu().squeeze(0).permute(1, 2, 0)
             gt_flow = gt_flow.cpu().squeeze(0).permute(1, 2, 0)

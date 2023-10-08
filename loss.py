@@ -57,14 +57,15 @@ class UnsupLoss(nn.Module):
     def forward(self, im1, im2, output, target):
         if type(output) is tuple:
             pmelossvalue = pme_loss(im1, output[0], im2, norm = 'L1')
-            gdlossvalue = gradient_loss(output[0], smooth_coef = 0.005, penalty='L2')
+            gdlossvalue = gradient_loss(output[0], smooth_coef = 0.01, penalty='L2')
             lossvalue = pmelossvalue + gdlossvalue
             epevalue = EPE(output[0], target)
             return [lossvalue, epevalue]
         else:
             pmelossvalue = pme_loss(im1, output, im2, norm = 'L1')
-            gdlossvalue = gradient_loss(output, smooth_coef = 0.005, penalty='L1')
-            lossvalue = pmelossvalue + gdlossvalue
+            gdlossvalue = gradient_loss(output, smooth_coef = 0.005, penalty='L2')
+            # lossvalue = pmelossvalue + gdlossvalue
+            lossvalue = pmelossvalue
             epevalue = EPE(output, target)
             return  [lossvalue, epevalue]
 
@@ -85,13 +86,12 @@ class L2(nn.Module):
     
 
 class MultiScale(nn.Module):
-    def __init__(self, args, startScale = 4, numScales = 5, l_weight= 0.32, norm= 'L1'):
+    def __init__(self,startScale = 4, numScales = 5, l_weight= 0.32, norm= 'L1'):
         super(MultiScale,self).__init__()
 
         self.startScale = startScale
         self.numScales = numScales
         self.loss_weights = torch.FloatTensor([(l_weight / 2 ** scale) for scale in range(self.numScales)])
-        self.args = args
         self.l_type = norm
         self.div_flow = 0.05
         assert(len(self.loss_weights) == self.numScales)
@@ -104,7 +104,8 @@ class MultiScale(nn.Module):
         self.multiScales = [nn.AvgPool2d(self.startScale * (2**scale), self.startScale * (2**scale)) for scale in range(self.numScales)]
         self.loss_labels = ['MultiScale-'+self.l_type, 'EPE'],
 
-    def forward(self, output, target):
+    def forward(self, im1, im2, output, target):
+        # im1 and im2 are not used in this function
         lossvalue = 0
         epevalue = 0
 
