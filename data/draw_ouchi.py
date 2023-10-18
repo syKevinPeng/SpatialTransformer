@@ -2,18 +2,19 @@ import math
 from PIL import Image, ImageDraw  
 import numpy as np
 from pathlib import Path
+import imageio
 
-output_path = Path('/home/siyuan/research/SpatialTransformer/data/Ouchi_illusion/Ouchi')
-output_file_name = 'ouchi_0_255.png'
+output_path = Path('/home/siyuan/research/SpatialTransformer/data/imgs/Ouchi')
 # Define the size of the image  
-width, height =256, 256
+width, height =300, 300
 # Define the size of the rectangles and the space between them  
-rectangle_width = 5 
-rectangle_height = 25  
-radius = 45
+rectangle_width = 4 
+rectangle_height = 32  
+radius = 36
 
-bg_color = 0
-fg_color = 255
+bg_color = 100
+fg_color = 140
+output_file_name = f'small_ouchi_{bg_color}_{fg_color}.png'
   
 # Create a new image with white background  
 img = Image.new('RGB', (width, height), (bg_color, bg_color, bg_color))  
@@ -49,8 +50,7 @@ img = np.array(img)
 loc = np.where(img == 0)
 # set the pixel to gb_color
 img[loc] = bg_color
-# convert numpy array to pil image
-img = Image.fromarray(img)
-img.save(output_path/output_file_name)
-# Save the image  
-# img.save('variant_ouchi_2.png')  
+# save image as 0-255
+img = img.astype(np.uint8)
+# save image
+imageio.imwrite(output_path/output_file_name, img)
